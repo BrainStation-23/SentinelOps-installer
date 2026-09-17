@@ -1,0 +1,25 @@
+# Deployment keys are placed next to the installer at install time and must
+# never be committed.
+deploy_key
+deploy_key.*
+*.pem
+id_rsa
+id_ed25519
+
+# Local environment and state
+.env
+.env.local
+*.local
+
+# Installer output, if anyone runs it from inside the checkout
+logs/
+backups/
+.state/
+runtime/
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

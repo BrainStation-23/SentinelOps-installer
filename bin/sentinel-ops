@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+#
+# sentinel-ops - installer and deployment manager for the Sentinel Ops stack.
+#
+#   sentinel-ops                    guided menu
+#   sentinel-ops install            first installation
+#   sentinel-ops update [target]    app (default) | supabase | all
+#   sentinel-ops status             what is actually running
+#   sentinel-ops credentials        generated Supabase credentials
+#   sentinel-ops backup [create|list]
+#   sentinel-ops restore [backup]
+#   sentinel-ops rollback           previous application image
+#   sentinel-ops logs [target]
+#   sentinel-ops nuke               destroy this installation entirely
+#
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Locate the installation of this tool (works from the source checkout and from
+# the installed copy, including through a symlink in /usr/local/bin).
+# ---------------------------------------------------------------------------
+_resolve_self() {
+    local src="${BASH_SOURCE[0]}" dir
+    while [[ -L "$src" ]]; do
+        dir="$(cd -P "$(dirname "$src")" && pwd)"
+        src="$(readlink "$src")"
+        [[ "$src" != /* ]] && src="${dir}/${src}"
+    done
+    cd -P "$(dirname "$src")/.." && pwd
+}
+
+SO_ROOT="$(_resolve_self)"
+SO_LIB_DIR="${SO_ROOT}/lib"
+SO_ASSETS_DIR="${SO_ROOT}/assets"
+# Where the command was launched from - used to find a deploy_key shipped
+# alongside the installer.
+SO_SOURCE_DIR="$SO_ROOT"
+
+for _lib in common os prereqs config supabase logflare azure firewall repo frontend database selfinstall menu; do
+    # shellcheck source=/dev/null
+    source "${SO_LIB_DIR}/${_lib}.sh"
+done
+for _lib in install update status credentials maintenance nuke network azure; do
+    # shellcheck source=/dev/null
+    source "${SO_LIB_DIR}/commands/${_lib}.sh"
+done
+unset _lib
+
+# ---------------------------------------------------------------------------
+# Global flags
+# ---------------------------------------------------------------------------
+SO_SHOW_SECRETS="false"
+SO_INSTALL_DIR_OVERRIDE="${SENTINEL_OPS_DIR:-}"
+
+usage() {
+    cat <<'USAGE'
+Sentinel Ops installer and deployment manager
+
+Usage: sentinel-ops [options] <command> [arguments]
+
+Commands:
+  install                 Install Sentinel Ops on this server
+  update [app]            Update the application (default target)
+  update supabase         Update Supabase only
+  update all              Update Supabase and then the application
+  status                  Show what is currently deployed and healthy
+  credentials             Show the generated Supabase credentials
+  backup [create|list]    Create or list database backups
+  restore [backup]        Restore a database backup (latest if omitted)
+  rollback                Roll the application back to the previous image
+  logs [target] [lines]   app | supabase | logflare | installer
+  network [status|enable|disable]
+                          Expose (or restrict) the frontend and Supabase API
+                          directly on the network - see docs/REVERSE-PROXY.md
+  azure [status|enable|disable]
+                          Configure Azure AD (Microsoft Entra ID) sign-in
+  nuke [--keep-*]         Destroy this installation (containers, volumes,
+                          database and files) so a fresh install can be tested
+  version                 Print the installer version
+
+Options:
+  -d, --dir <path>        Installation directory (default /opt/sentinel-ops)
+  -y, --yes               Non-interactive: accept every default
+      --show              Reveal secrets in `credentials` output
+      --force             Re-run install phases that already completed
+      --debug             Verbose logging
+  -h, --help              This help
+
+With no command, an interactive menu is shown.
+USAGE
+}
+
+main() {
+    local args=()
+    while (( $# )); do
+        case "$1" in
+            -d|--dir)   SO_INSTALL_DIR_OVERRIDE="$2"; shift 2 ;;
+            --dir=*)    SO_INSTALL_DIR_OVERRIDE="${1#*=}"; shift ;;
+            -y|--yes)   SO_ASSUME_YES="true"; shift ;;
+            --show)     SO_SHOW_SECRETS="true"; shift ;;
+            --force)    SO_FORCE_PHASES="true"; shift ;;
+            --debug)    SO_DEBUG="true"; shift ;;
+            -h|--help)  usage; return 0 ;;
+            --)         shift; args+=("$@"); break ;;
+            -*)         log_error "Unknown option: $1"; usage; return 2 ;;
+            *)          args+=("$1"); shift ;;
+        esac
+    done
+
+    # Establish the paths every command works against.
+    config_set_paths "${SO_INSTALL_DIR_OVERRIDE:-$SO_DEFAULT_INSTALL_DIR}"
+    [[ -d "$LOG_DIR" ]] && SO_LOG_FILE="${LOG_DIR}/sentinel-ops-$(date +%Y-%m-%d).log"
+    config_load 2>/dev/null || true
+
+    # A copy of this tool that has fallen behind its source looks exactly like
+    # a tool missing a feature, so check before the command reports anything.
+    warn_if_stale
+
+    local cmd="${args[0]:-menu}"
+    local rest=("${args[@]:1}")
+
+    case "$cmd" in
+        menu)        cmd_menu ;;
+        install)     cmd_install ;;
+        update)      cmd_update "${rest[@]:-app}" ;;
+        status)      cmd_status ;;
+        credentials|creds) cmd_credentials ;;
+        backup)      cmd_backup "${rest[@]:-create}" ;;
+        restore)     cmd_restore "${rest[@]:-}" ;;
+        rollback)    cmd_rollback ;;
+        logs)        cmd_logs "${rest[@]:-app}" ;;
+        network)     cmd_network "${rest[@]:-status}" ;;
+        azure)       cmd_azure "${rest[@]:-status}" ;;
+        nuke)        cmd_nuke "${rest[@]:-}" ;;
+        version|--version) printf 'sentinel-ops %s\n' "$SO_INSTALLER_VERSION" ;;
+        help)        usage ;;
+        *)
+            log_error "Unknown command: ${cmd}"
+            usage
+            return 2
+            ;;
+    esac
+}
+
+main "$@"

@@ -1,0 +1,36 @@
+# Sentinel Ops frontend build context exclusions.
+# Copied into the application checkout as .dockerignore.
+
+.git
+.gitignore
+node_modules
+npm-debug.log*
+yarn-error.log*
+
+# Secrets never belong in a build context. The build receives the publishable
+# key and URLs as explicit --build-arg values instead.
+.env
+.env.*
+!.env.example
+deploy_key
+deploy_key.pub
+*.pem
+*.key
+
+# Server-side assets: migrations and edge functions are deployed by the
+# installer straight to Supabase, not baked into the frontend image.
+supabase/
+
+# Editor and OS noise
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Test and coverage output
+coverage
+.nyc_output
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
