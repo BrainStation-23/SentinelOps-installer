@@ -7,14 +7,14 @@
 #   sudo ./install.sh --yes           non-interactive, accept every default
 #
 # Straight from the internet (downloads the installer, then runs it):
-#   curl -fsSL https://raw.githubusercontent.com/tanjil-al-mahmud/SentinelOPS-Installer-and-Deployment/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/BrainStation-23/SentinelOps-installer/main/install.sh | sudo bash
 #
 # This is a thin wrapper. It hands over to bin/sentinel-ops, which is also what
 # gets installed onto the server, so there is only ever one code path.
 #
 set -euo pipefail
 
-REPO_URL="https://github.com/tanjil-al-mahmud/SentinelOPS-Installer-and-Deployment"
+REPO_URL="https://github.com/BrainStation-23/SentinelOps-installer"
 REPO_BRANCH="${SENTINEL_OPS_INSTALLER_BRANCH:-main}"
 
 # When piped from curl there is no script on disk, so BASH_SOURCE is unusable.

@@ -22,7 +22,7 @@ server. See [Before you install](#before-you-install).
 Run this from a directory containing your `deploy_key`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tanjil-al-mahmud/SentinelOPS-Installer-and-Deployment/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/BrainStation-23/SentinelOps-installer/main/install.sh | sudo bash
 ```
 
 It downloads the installer, reattaches your terminal so the guided prompts still
@@ -373,7 +373,7 @@ wins.
 The one-liner always installs whatever is on `main`. To install from a branch:
 
 ```bash
-SENTINEL_OPS_INSTALLER_BRANCH=my-branch   curl -fsSL https://raw.githubusercontent.com/tanjil-al-mahmud/SentinelOPS-Installer-and-Deployment/my-branch/install.sh | sudo -E bash
+SENTINEL_OPS_INSTALLER_BRANCH=my-branch   curl -fsSL https://raw.githubusercontent.com/BrainStation-23/SentinelOps-installer/my-branch/install.sh | sudo -E bash
 ```
 
 `sudo -E` preserves the variable. On an existing server, pulling a newer
