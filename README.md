@@ -31,8 +31,8 @@ work, and starts the installation.
 ### From a clone
 
 ```bash
-git clone https://github.com/tanjil-al-mahmud/SentinelOPS-Installer-and-Deployment.git
-cd SentinelOPS-Installer-and-Deployment
+git clone https://github.com/BrainStation-23/SentinelOps-installer.git
+cd SentinelOps-installer
 cp /path/to/deploy_key ./deploy_key      # private SSH key for the app repo
 chmod 600 ./deploy_key
 sudo ./install.sh
