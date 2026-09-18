@@ -275,6 +275,19 @@ timestamp() { date '+%Y-%m-%d-%H%M%S'; }
 
 strip_trailing_slash() { printf '%s' "${1%/}"; }
 
+# True when something is already listening on this port. Checked against
+# 127.0.0.1 regardless of the actual bind address: a listener on 0.0.0.0 (as
+# Supabase's own gateway and pooler always are) still accepts a loopback
+# connection, so this one check catches both.
+port_in_use() {
+    local port="$1"
+    if (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
+        exec 3>&- 2>/dev/null || true
+        return 0
+    fi
+    return 1
+}
+
 # Extract the hostname from a URL (no scheme, no path, no port).
 url_host() {
     local url="$1"

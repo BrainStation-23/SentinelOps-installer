@@ -3,6 +3,47 @@
 # shellcheck shell=bash
 
 # ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+# Non-empty (a human-readable reason) when this port cannot be used for the
+# frontend; empty when it is safe to use.
+_frontend_port_conflict() {
+    local port="$1" reserved
+    for reserved in $(supabase_reserved_ports); do
+        if [[ "$port" == "$reserved" ]]; then
+            printf 'is reserved by Supabase - its own compose file always publishes it'
+            return 0
+        fi
+    done
+    if port_in_use "$port"; then
+        printf 'is already in use on this host'
+        return 0
+    fi
+    return 1
+}
+
+# Interactive prompt for the frontend's published port. Validated against
+# every port Supabase's own compose file always publishes (its gateway and
+# pooler, upstream's choice, not something this installer can move) and
+# against whatever else is already listening, so a collision is caught here
+# instead of surfacing later as a raw "port is already allocated" from Docker.
+frontend_prompt_config() {
+    section "Frontend Port"
+
+    local conflict
+    while true; do
+        prompt_default APP_PORT "Frontend port" "$APP_PORT"
+
+        conflict="$(_frontend_port_conflict "$APP_PORT")" || break
+        log_warn "Port ${APP_PORT} ${conflict}."
+        if [[ "$SO_ASSUME_YES" == "true" || ! -t 0 ]]; then
+            die "Port ${APP_PORT} cannot be used and this run cannot prompt for another. Set APP_PORT to a free port in ${CONFIG_FILE} and re-run."
+        fi
+    done
+}
+
+# ---------------------------------------------------------------------------
 # Application environment
 # ---------------------------------------------------------------------------
 
@@ -222,10 +263,7 @@ frontend_health_check() {
 _free_port() {
     local port
     for port in $(seq 39000 39050); do
-        if ! (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
-            printf '%s' "$port"; return 0
-        fi
-        exec 3>&- 2>/dev/null || true
+        port_in_use "$port" || { printf '%s' "$port"; return 0; }
     done
     printf '39099'
 }

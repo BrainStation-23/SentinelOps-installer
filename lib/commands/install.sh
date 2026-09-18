@@ -96,6 +96,7 @@ _install_collect_config() {
     # Re-use anything already recorded, so a resumed install does not re-ask.
     config_load 2>/dev/null || true
     supabase_prompt_config
+    frontend_prompt_config
     repo_prompt_config
 
     logflare_prompt_config
