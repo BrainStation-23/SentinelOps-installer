@@ -54,18 +54,16 @@ sentinel-ops restore 2026-09-11-121500     # or omit for the latest
 ```
 
 Backups are taken automatically before the first migration run, before every
-application update, before every Supabase update and before any restore.
-
-```
-/opt/sentinel-ops/backups/2026-09-11-121500/
-├── database.sql      pg_dumpall --clean --if-exists (roles and all databases)
-└── metadata.txt      timestamp, reason, Supabase version, app commit, image
-```
-
-The ten most recent are kept (`BACKUP_RETENTION`).
+application update, before every Supabase update and before any restore, and
+capture the whole stack (database, Storage files, edge functions and the
+config needed to rebuild the install) — not just the database.
 
 > `restore` replaces the current database contents. It takes a safety copy of
 > the current state first, so a bad restore is still recoverable.
+
+See [BACKUPS.md](BACKUPS.md) for the full backup layout, retention, restore
+flags, and setting up a real 3-2-1 setup (a second local/attached copy plus an
+offsite one, both replicated by [restic](https://restic.net) on a schedule).
 
 ## Rolling back
 

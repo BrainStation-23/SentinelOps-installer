@@ -1,93 +1,11 @@
 #!/usr/bin/env bash
-# lib/commands/maintenance.sh - backup, restore, rollback and logs.
+# lib/commands/maintenance.sh - rollback and logs.
+#
+# Backup/restore moved to lib/commands/backup.sh (lib/backup.sh has the
+# underlying logic) - both feature the same "create a safety copy, then act"
+# shape as rollback, but are a large enough surface (full-stack backups,
+# restic replication) to warrant their own file.
 # shellcheck shell=bash
-
-# ---------------------------------------------------------------------------
-# Backup
-# ---------------------------------------------------------------------------
-
-cmd_backup() {
-    installation_exists || die "No installation found at ${INSTALL_DIR}."
-    config_load || true
-    detect_compose >/dev/null 2>&1 || true
-
-    case "${1:-create}" in
-        create|"")
-            local dir
-            dir="$(create_database_backup "manual")" || die "Backup failed."
-            printf '\n'
-            log_ok "Backup complete: ${dir}"
-            ;;
-        list|ls)
-            section "Backups"
-            local d found=0
-            while IFS= read -r d; do
-                [[ -n "$d" ]] || continue
-                found=1
-                printf '%-24s %-10s %s\n' \
-                    "$(basename "$d")" \
-                    "$(du -h "${d}/database.sql" 2>/dev/null | cut -f1)" \
-                    "$(env_get "${d}/metadata.txt" reason 2>/dev/null || printf '-')"
-            done < <(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | LC_ALL=C sort -r)
-            (( found )) || printf 'No backups yet.\n'
-            printf '\n'
-            ;;
-        *)
-            log_error "Unknown backup subcommand: $1"
-            printf 'Valid: create, list\n'
-            return 2
-            ;;
-    esac
-    return 0
-}
-
-# ---------------------------------------------------------------------------
-# Restore
-# ---------------------------------------------------------------------------
-
-cmd_restore() {
-    require_root restore
-    installation_exists || die "No installation found at ${INSTALL_DIR}."
-    config_load || true
-    detect_compose >/dev/null 2>&1 || true
-
-    local target="${1:-}"
-    [[ -n "$target" ]] || target="$(backup_latest)"
-    [[ -n "$target" ]] || die "No backup to restore."
-    # Accept either a full path or just the timestamp directory name.
-    [[ -d "$target" ]] || target="${BACKUP_DIR}/${target}"
-    [[ -f "${target}/database.sql" ]] || die "No database.sql in ${target}"
-
-    banner "Restore Database"
-    printf '\n'
-    cat "${target}/metadata.txt" 2>/dev/null || true
-    printf '\n'
-    log_warn "This REPLACES the current database contents."
-    confirm "Restore from $(basename "$target")?" n || { log_info "Cancelled."; return 0; }
-
-    # Take a safety copy first: a restore that goes wrong should still be
-    # recoverable.
-    log_info "Creating a safety backup of the current database..."
-    create_database_backup "pre-restore" >/dev/null || \
-        log_warn "Could not create a safety backup."
-
-    supabase_check_postgres || die "The database is not running."
-
-    log_info "Restoring..."
-    local cid
-    cid="$(_db_container)" || return 1
-    if ! docker exec -i -e PGPASSWORD="$(_db_pass)" "$cid" \
-            psql -U "$(_db_user)" -d "$(_db_name)" -q \
-            <"${target}/database.sql" >>"${SO_LOG_FILE:-/dev/null}" 2>&1; then
-        die "Restore failed. See ${SO_LOG_FILE:-the log}."
-    fi
-
-    log_ok "Database restored from $(basename "$target")"
-    log_info "Restarting Supabase so every service reconnects..."
-    supabase_restart || log_warn "Could not restart Supabase automatically."
-    supabase_health_check 180 || log_warn "Supabase is not fully healthy after the restore."
-    return 0
-}
 
 # ---------------------------------------------------------------------------
 # Rollback

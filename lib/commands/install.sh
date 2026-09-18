@@ -68,7 +68,7 @@ _install_app_env() {
 _install_database() {
     # A backup before the very first migration run is cheap and gives a clean
     # restore point for the pre-application database.
-    create_database_backup "pre-install-migrations" >/dev/null || \
+    backup_create_full "pre-install-migrations" >/dev/null || \
         log_warn "Could not create a pre-migration backup; continuing."
     deploy_migrations || return 1
     deploy_functions || return 1

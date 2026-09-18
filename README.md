@@ -142,10 +142,12 @@ switches over with a config change and a restart — no reinstall.
 | `sentinel-ops update all` | Update Supabase, then the application |
 | `sentinel-ops status` | Health and version of every component |
 | `sentinel-ops credentials` | Show generated credentials (masked; `--show` to reveal) |
-| `sentinel-ops backup [create\|list]` | Database backups |
-| `sentinel-ops restore [backup]` | Restore a backup (latest if omitted) |
+| `sentinel-ops backup [create\|list\|verify]` | Full-stack backups (database, Storage, functions, config) |
+| `sentinel-ops restore [backup] [--scope\|--from]` | Restore a backup (latest local if omitted) - see [BACKUPS.md](docs/BACKUPS.md) |
 | `sentinel-ops rollback` | Roll the application back to the previous image |
 | `sentinel-ops logs <target>` | `app`, `supabase`, `logflare`, `installer` |
+| `sentinel-ops remote [status\|secondary\|offsite]` | Configure the 3-2-1 replication targets - see [BACKUPS.md](docs/BACKUPS.md) |
+| `sentinel-ops schedule [status\|enable\|disable\|run-now]` | Run backups on a systemd timer - see [BACKUPS.md](docs/BACKUPS.md) |
 | `sentinel-ops network [status\|enable\|disable]` | Expose (or restrict) the frontend and Supabase API directly on the LAN |
 | `sentinel-ops domain [status\|set <hostname>]` | Point the stack at a real domain (config + restart, no reinstall) |
 | `sentinel-ops azure [status\|enable\|disable]` | Configure Azure AD (Microsoft Entra ID) sign-in |
@@ -162,7 +164,7 @@ installation directory, leaving the host ready to install from scratch.
 ```bash
 sudo sentinel-ops nuke                    # everything
 sudo sentinel-ops nuke --keep-config      # keep installer.env and the deploy key
-sudo sentinel-ops nuke --keep-backups     # keep the database dumps
+sudo sentinel-ops nuke --keep-backups     # keep the local backups
 sudo sentinel-ops nuke --keep-all         # keep both
 ```
 
@@ -179,6 +181,10 @@ itself is a prerequisite, not part of the deployment, and is never touched.
 `config/installer.env` and `config/deploy_key`, so the reinstall needs no
 prompts and no re-copied key. Phase markers in `.state/` are always removed, so
 every phase genuinely re-runs.
+
+If a secondary or offsite backup repository is configured (see
+[docs/BACKUPS.md](docs/BACKUPS.md)), nuke never touches it — those live on a
+separate medium precisely so a mistake on this host can't take them out too.
 
 ---
 
@@ -208,7 +214,8 @@ actually runs**.
 ├── config/
 │   ├── installer.env        persisted configuration
 │   ├── deploy_key           chmod 600, used only for Git
-│   └── known_hosts          pinned Git host key
+│   ├── known_hosts          pinned Git host key
+│   └── restic-<role>.pass/.env   3-2-1 repository credentials, chmod 600
 ├── supabase/
 │   ├── .env                 ← secrets and state; never regenerated
 │   ├── docker-compose.yml
@@ -216,7 +223,8 @@ actually runs**.
 ├── app/                     the Sentinel Ops checkout
 │   ├── .env                 generated from Supabase config
 │   └── supabase/{migrations,functions}
-├── backups/<timestamp>/     database.sql + metadata.txt
+├── backups/<timestamp>/     database.sql, storage.tar.gz, functions.tar.gz,
+│                            config.tar.gz, checksums.txt, metadata.txt
 ├── logs/                    installer logs
 └── .state/                  deployed commit, image, versions, phase markers
 ```
@@ -423,6 +431,7 @@ tests for the helpers that the deployment logic depends on.
 ## Further reading
 
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — day-two runbook and troubleshooting
+- [docs/BACKUPS.md](docs/BACKUPS.md) — full-stack backup layout, restore flags and 3-2-1 setup
 - [docs/REVERSE-PROXY.md](docs/REVERSE-PROXY.md) — upstreams and example proxy configs
 - [docs/LOGFLARE.md](docs/LOGFLARE.md) — analytics setup, backends and variables
 - [docs/AZURE-AD.md](docs/AZURE-AD.md) — Azure AD sign-in setup and variables

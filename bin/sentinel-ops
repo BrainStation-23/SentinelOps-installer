@@ -7,10 +7,12 @@
 #   sentinel-ops update [target]    app (default) | supabase | all
 #   sentinel-ops status             what is actually running
 #   sentinel-ops credentials        generated Supabase credentials
-#   sentinel-ops backup [create|list]
-#   sentinel-ops restore [backup]
+#   sentinel-ops backup [create|list|verify]
+#   sentinel-ops restore [backup] [--scope=db|full] [--from=local|secondary|offsite]
 #   sentinel-ops rollback           previous application image
 #   sentinel-ops logs [target]
+#   sentinel-ops remote [status|secondary|offsite]   3-2-1 replication targets
+#   sentinel-ops schedule [status|enable|disable|run-now]
 #   sentinel-ops nuke               destroy this installation entirely
 #
 set -euo pipefail
@@ -36,11 +38,11 @@ SO_ASSETS_DIR="${SO_ROOT}/assets"
 # alongside the installer.
 SO_SOURCE_DIR="$SO_ROOT"
 
-for _lib in common os prereqs config supabase logflare azure firewall repo frontend database selfinstall menu; do
+for _lib in common os prereqs config supabase logflare azure firewall repo frontend database backup restic selfinstall menu; do
     # shellcheck source=/dev/null
     source "${SO_LIB_DIR}/${_lib}.sh"
 done
-for _lib in install update status credentials maintenance nuke network azure domain; do
+for _lib in install update status credentials maintenance backup remote schedule nuke network azure domain; do
     # shellcheck source=/dev/null
     source "${SO_LIB_DIR}/commands/${_lib}.sh"
 done
@@ -65,10 +67,18 @@ Commands:
   update all              Update Supabase and then the application
   status                  Show what is currently deployed and healthy
   credentials             Show the generated Supabase credentials
-  backup [create|list]    Create or list database backups
-  restore [backup]        Restore a database backup (latest if omitted)
+  backup [create|list|verify]
+                          Create, list or verify a full-stack backup
+                          (database, Storage, functions, config)
+  restore [backup] [--scope=db|full] [--from=local|secondary|offsite]
+                          Restore a backup (latest local if omitted)
   rollback                Roll the application back to the previous image
   logs [target] [lines]   app | supabase | logflare | installer
+  remote [status|secondary|offsite [status|configure|check|forget]]
+                          Configure the 3-2-1 replication targets - see
+                          docs/BACKUPS.md
+  schedule [status|enable|disable|run-now]
+                          Run backups on a systemd timer - see docs/BACKUPS.md
   network [status|enable|disable]
                           Expose (or restrict) the frontend and Supabase API
                           directly on the network - see docs/REVERSE-PROXY.md
@@ -132,6 +142,8 @@ main() {
         restore)     cmd_restore "${rest[@]:-}" ;;
         rollback)    cmd_rollback ;;
         logs)        cmd_logs "${rest[@]:-app}" ;;
+        remote)      cmd_remote "${rest[@]:-status}" ;;
+        schedule)    cmd_schedule "${rest[@]:-status}" ;;
         network)     cmd_network "${rest[@]:-status}" ;;
         domain)      cmd_domain "${rest[@]:-status}" ;;
         azure)       cmd_azure "${rest[@]:-status}" ;;

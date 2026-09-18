@@ -256,6 +256,16 @@ env_set() {
     rm -f "$tmp"
 }
 
+# List the keys defined in an env-style file, one per line, in file order.
+# Like env_get, this reads rather than sources the file, so a credentials file
+# can be enumerated (to export each key by name) without ever executing it.
+env_keys() {
+    local file="$1"
+    [[ -f "$file" ]] || return 1
+    grep -E '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=' "$file" \
+        | sed -E 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=.*/\1/'
+}
+
 # Mask a secret for display: keep the first and last four characters.
 mask_secret() {
     local s="$1"
@@ -269,6 +279,19 @@ mask_secret() {
 random_token() {
     local bytes="${1:-32}"
     openssl rand -hex "$bytes" 2>/dev/null || head -c "$bytes" /dev/urandom | od -An -tx1 | tr -d ' \n'
+}
+
+# sha256 of a file's contents, printed alone (no filename). Same
+# openssl-first-then-fallback shape as random_token, since sha256sum is not
+# guaranteed on every minimal image the way openssl already needs to be.
+file_sha256() {
+    local path="$1"
+    [[ -f "$path" ]] || return 1
+    if have_cmd sha256sum; then
+        sha256sum "$path" 2>/dev/null | cut -d' ' -f1
+    else
+        openssl dgst -sha256 -r "$path" 2>/dev/null | cut -d' ' -f1
+    fi
 }
 
 timestamp() { date '+%Y-%m-%d-%H%M%S'; }

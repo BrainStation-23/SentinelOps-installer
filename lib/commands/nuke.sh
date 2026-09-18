@@ -93,6 +93,11 @@ _nuke_inventory() {
         status_line "Config" "bad" "Deleted, incl. deploy key"
     fi
 
+    if [[ "$RESTIC_SECONDARY_ENABLED" == "true" || "$RESTIC_OFFSITE_ENABLED" == "true" ]]; then
+        status_line "Offsite/secondary backups" "ok" \
+            "NOT touched - separate medium; see: sentinel-ops remote status"
+    fi
+
     printf '\n'
     return 0
 }

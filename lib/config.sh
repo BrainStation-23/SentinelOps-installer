@@ -47,6 +47,28 @@ ENABLE_LOGFLARE="true"
 ENABLE_AZURE_AD="false"
 AZURE_CLIENT_ID=""
 AZURE_TENANT_ID=""
+# How many local backup cycles to keep (lib/backup.sh:backup_prune_local).
+BACKUP_RETENTION_COUNT="10"
+# Scheduled backups (lib/commands/schedule.sh). Off by default; see
+# `sentinel-ops schedule enable`. CHECK_DAY names the day restic's own
+# integrity check runs against configured remotes, not every night's backup.
+BACKUP_SCHEDULE_ENABLED="false"
+BACKUP_SCHEDULE_CALENDAR="daily"
+BACKUP_SCHEDULE_CHECK_DAY="Sun"
+# 3-2-1's "different medium" and "offsite" copies (lib/restic.sh,
+# lib/commands/remote.sh). Both off by default - repository URLs are not
+# secrets, but the repository password and any backend credentials never live
+# here; see _restic_password_file()/_restic_credentials_file().
+RESTIC_SECONDARY_ENABLED="false"
+RESTIC_SECONDARY_REPOSITORY=""
+RESTIC_SECONDARY_KEEP_DAILY="7"
+RESTIC_SECONDARY_KEEP_WEEKLY="4"
+RESTIC_SECONDARY_KEEP_MONTHLY="6"
+RESTIC_OFFSITE_ENABLED="false"
+RESTIC_OFFSITE_REPOSITORY=""
+RESTIC_OFFSITE_KEEP_DAILY="7"
+RESTIC_OFFSITE_KEEP_WEEKLY="4"
+RESTIC_OFFSITE_KEEP_MONTHLY="6"
 
 # Establish every path from the installation root.
 config_set_paths() {
@@ -83,7 +105,13 @@ config_load() {
     for key in APP_REPOSITORY APP_BRANCH DEPLOY_KEY SUPABASE_PUBLIC_URL \
                API_EXTERNAL_URL SITE_URL APP_PORT APP_BIND APP_IMAGE_NAME \
                APP_CONTAINER_NAME ENABLE_LOGFLARE \
-               ENABLE_AZURE_AD AZURE_CLIENT_ID AZURE_TENANT_ID; do
+               ENABLE_AZURE_AD AZURE_CLIENT_ID AZURE_TENANT_ID \
+               BACKUP_RETENTION_COUNT \
+               BACKUP_SCHEDULE_ENABLED BACKUP_SCHEDULE_CALENDAR BACKUP_SCHEDULE_CHECK_DAY \
+               RESTIC_SECONDARY_ENABLED RESTIC_SECONDARY_REPOSITORY \
+               RESTIC_SECONDARY_KEEP_DAILY RESTIC_SECONDARY_KEEP_WEEKLY RESTIC_SECONDARY_KEEP_MONTHLY \
+               RESTIC_OFFSITE_ENABLED RESTIC_OFFSITE_REPOSITORY \
+               RESTIC_OFFSITE_KEEP_DAILY RESTIC_OFFSITE_KEEP_WEEKLY RESTIC_OFFSITE_KEEP_MONTHLY; do
         val="$(env_get "$CONFIG_FILE" "$key" || true)"
         [[ -n "$val" ]] && printf -v "$key" '%s' "$val"
     done
@@ -101,6 +129,10 @@ config_save() {
         printf 'INSTALL_DIR=%s\n'           "$INSTALL_DIR"
         printf 'SUPABASE_DIR=%s\n'          "$SUPABASE_DIR"
         printf 'APP_DIR=%s\n'               "$APP_DIR"
+        # Informational only - always derived from INSTALL_DIR in
+        # config_set_paths(), never read back by config_load(). The "second
+        # medium" leg of 3-2-1 is RESTIC_SECONDARY_*, not a relocated hot
+        # copy; see docs/DECISIONS.md.
         printf 'BACKUP_DIR=%s\n\n'          "$BACKUP_DIR"
         printf '# Application repository\n'
         printf 'APP_REPOSITORY=%s\n'        "$APP_REPOSITORY"
@@ -122,7 +154,25 @@ config_save() {
         printf '# never written here; it lives only in supabase/.env.\n'
         printf 'ENABLE_AZURE_AD=%s\n'       "$ENABLE_AZURE_AD"
         printf 'AZURE_CLIENT_ID=%s\n'       "$AZURE_CLIENT_ID"
-        printf 'AZURE_TENANT_ID=%s\n'       "$AZURE_TENANT_ID"
+        printf 'AZURE_TENANT_ID=%s\n\n'     "$AZURE_TENANT_ID"
+        printf '# Backups - see docs/BACKUPS.md\n'
+        printf 'BACKUP_RETENTION_COUNT=%s\n' "$BACKUP_RETENTION_COUNT"
+        printf 'BACKUP_SCHEDULE_ENABLED=%s\n'  "$BACKUP_SCHEDULE_ENABLED"
+        printf 'BACKUP_SCHEDULE_CALENDAR=%s\n' "$BACKUP_SCHEDULE_CALENDAR"
+        printf 'BACKUP_SCHEDULE_CHECK_DAY=%s\n\n' "$BACKUP_SCHEDULE_CHECK_DAY"
+        printf '# Offsite/secondary replication (restic). Repository passwords and\n'
+        printf '# backend credentials are never written here; see config/restic-*.pass\n'
+        printf '# and config/restic-*.env.\n'
+        printf 'RESTIC_SECONDARY_ENABLED=%s\n'      "$RESTIC_SECONDARY_ENABLED"
+        printf 'RESTIC_SECONDARY_REPOSITORY=%s\n'   "$RESTIC_SECONDARY_REPOSITORY"
+        printf 'RESTIC_SECONDARY_KEEP_DAILY=%s\n'   "$RESTIC_SECONDARY_KEEP_DAILY"
+        printf 'RESTIC_SECONDARY_KEEP_WEEKLY=%s\n'  "$RESTIC_SECONDARY_KEEP_WEEKLY"
+        printf 'RESTIC_SECONDARY_KEEP_MONTHLY=%s\n\n' "$RESTIC_SECONDARY_KEEP_MONTHLY"
+        printf 'RESTIC_OFFSITE_ENABLED=%s\n'      "$RESTIC_OFFSITE_ENABLED"
+        printf 'RESTIC_OFFSITE_REPOSITORY=%s\n'   "$RESTIC_OFFSITE_REPOSITORY"
+        printf 'RESTIC_OFFSITE_KEEP_DAILY=%s\n'   "$RESTIC_OFFSITE_KEEP_DAILY"
+        printf 'RESTIC_OFFSITE_KEEP_WEEKLY=%s\n'  "$RESTIC_OFFSITE_KEEP_WEEKLY"
+        printf 'RESTIC_OFFSITE_KEEP_MONTHLY=%s\n' "$RESTIC_OFFSITE_KEEP_MONTHLY"
     } >"$tmp"
     cat "$tmp" >"$CONFIG_FILE"
     rm -f "$tmp"

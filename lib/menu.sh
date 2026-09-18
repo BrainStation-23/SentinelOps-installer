@@ -14,13 +14,15 @@ _menu_installed() {
     printf '  3. Update Everything\n'
     printf '  4. System Status\n'
     printf '  5. Credentials\n'
-    printf '  6. Backup database\n'
+    printf '  6. Backup now (full-stack)\n'
     printf '  7. Rollback application\n'
     printf '  8. Network exposure (LAN access)\n'
     printf '  9. Point at a real domain\n'
-    printf ' 10. Azure AD sign-in\n'
-    printf ' 11. Destroy this installation (nuke)\n'
-    printf ' 12. Exit\n\n'
+    printf ' 10. Offsite/secondary backup (3-2-1)\n'
+    printf ' 11. Backup schedule\n'
+    printf ' 12. Azure AD sign-in\n'
+    printf ' 13. Destroy this installation (nuke)\n'
+    printf ' 14. Exit\n\n'
     printf 'Select: '
 }
 
@@ -62,9 +64,11 @@ cmd_menu() {
                     IFS= read -r domain_choice || domain_choice=""
                     [[ -n "$domain_choice" ]] && cmd_domain set "$domain_choice"
                     ;;
-                10) cmd_azure           || true ;;
-                11) cmd_nuke            || true ;;
-                12|q|quit|exit) return 0 ;;
+                10) cmd_remote status   || true ;;
+                11) cmd_schedule status || true ;;
+                12) cmd_azure           || true ;;
+                13) cmd_nuke            || true ;;
+                14|q|quit|exit) return 0 ;;
                 *) log_warn "Invalid selection: ${choice}" ;;
             esac
         else

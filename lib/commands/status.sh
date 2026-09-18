@@ -105,6 +105,41 @@ _status_app() {
     return 0
 }
 
+_status_backups() {
+    section "Backups"
+    local latest count
+    latest="$(backup_latest)"
+    if [[ -n "$latest" ]]; then
+        status_line "Latest local backup" "ok" \
+            "$(basename "$latest") ($(env_get "${latest}/metadata.txt" reason 2>/dev/null || printf '-'))"
+    else
+        status_line "Latest local backup" "bad" "None yet - see: sentinel-ops backup create"
+    fi
+    count="$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)"
+    status_line "Local retention" "" "${count} kept (limit ${BACKUP_RETENTION_COUNT})"
+
+    local role last_backup last_check
+    for role in secondary offsite; do
+        local enabled_var
+        enabled_var="$(_restic_config_var "$role" ENABLED)"
+        [[ "${!enabled_var}" == "true" ]] || continue
+        last_backup="$(state_get "$(_restic_config_var "$role" LAST_BACKUP_AT)" never)"
+        last_check="$(state_get "$(_restic_config_var "$role" LAST_CHECK_AT)" never)"
+        status_line "$(_remote_role_label "$role")" "$([[ "$last_backup" == "never" ]] && printf warn || printf ok)" \
+            "last replicated ${last_backup}, last checked ${last_check}"
+    done
+    if [[ "$RESTIC_SECONDARY_ENABLED" != "true" && "$RESTIC_OFFSITE_ENABLED" != "true" ]]; then
+        status_line "3-2-1" "warn" "No secondary/offsite copy configured - see: sentinel-ops remote status"
+    fi
+
+    if [[ "$BACKUP_SCHEDULE_ENABLED" == "true" ]]; then
+        status_line "Schedule" "ok" "Enabled (${BACKUP_SCHEDULE_CALENDAR}) - see: sentinel-ops schedule status"
+    else
+        status_line "Schedule" "warn" "Not scheduled - see: sentinel-ops schedule enable"
+    fi
+    return 0
+}
+
 _status_urls() {
     section "URLs"
     if [[ "$SITE_URL" == https://* ]]; then
@@ -167,6 +202,7 @@ cmd_status() {
     _status_logflare
     _status_azure
     _status_app
+    _status_backups
     _status_urls
     _status_meta
     printf '\n'

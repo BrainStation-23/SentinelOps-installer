@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# lib/database.sh - migrations, edge functions and database backups.
+# lib/database.sh - low-level database access, migrations and edge functions.
+#
+# Full-stack backup/restore lives in lib/backup.sh, which calls the
+# _db_container/_db_user/_db_pass helpers below - it is not a database-only
+# concern any more (it also archives Storage, edge functions and config).
 #
 # These operations are shared verbatim by first install, application update and
 # full update. There is exactly one implementation of each.
 # shellcheck shell=bash
-
-BACKUP_RETENTION="${BACKUP_RETENTION:-10}"
 
 # ---------------------------------------------------------------------------
 # Low-level database access
@@ -232,67 +234,4 @@ deploy_functions() {
     state_set APP_FUNCTIONS "${names[*]:-none}"
     log_ok "Edge functions deployed"
     return 0
-}
-
-# ---------------------------------------------------------------------------
-# Backups
-# ---------------------------------------------------------------------------
-
-# Dump the database and record what was running at the time.
-# Prints the backup directory on stdout.
-create_database_backup() {
-    local label="${1:-manual}"
-    local cid stamp dir
-
-    if ! cid="$(_db_container)"; then
-        log_error "Cannot back up: the database is not running."
-        return 1
-    fi
-
-    stamp="$(timestamp)"
-    dir="${BACKUP_DIR}/${stamp}"
-    mkdir -p "$dir"
-
-    log_info "Backing up the database to ${dir}..." >&2
-    # pg_dumpall captures roles and every database, which is what a restore of
-    # a Supabase stack actually needs.
-    if ! docker exec -e PGPASSWORD="$(_db_pass)" "$cid" \
-            pg_dumpall -U "$(_db_user)" --clean --if-exists >"${dir}/database.sql" 2>>"${SO_LOG_FILE:-/dev/null}"; then
-        log_error "Database dump failed." >&2
-        rm -rf "$dir"
-        return 1
-    fi
-
-    {
-        printf 'timestamp=%s\n'         "$(date -Is 2>/dev/null || date)"
-        printf 'reason=%s\n'            "$label"
-        printf 'installer_version=%s\n' "$SO_INSTALLER_VERSION"
-        printf 'supabase_version=%s\n'  "$(supabase_current_version)"
-        printf 'app_commit=%s\n'        "$(state_get APP_COMMIT unknown)"
-        printf 'app_branch=%s\n'        "$APP_BRANCH"
-        printf 'app_image=%s\n'         "$(state_get APP_IMAGE unknown)"
-        printf 'size_bytes=%s\n'        "$(stat -c%s "${dir}/database.sql" 2>/dev/null || printf '0')"
-    } >"${dir}/metadata.txt"
-
-    chmod 700 "$dir" 2>/dev/null || true
-    log_ok "Backup created: ${dir} ($(du -h "${dir}/database.sql" 2>/dev/null | cut -f1))" >&2
-
-    _prune_backups
-    printf '%s' "$dir"
-    return 0
-}
-
-# Keep only the most recent BACKUP_RETENTION backups.
-_prune_backups() {
-    local count old
-    count="$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)"
-    (( count > BACKUP_RETENTION )) || return 0
-    while IFS= read -r old; do
-        log_debug "pruning old backup ${old}"
-        rm -rf "$old"
-    done < <(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d | LC_ALL=C sort | head -n "$(( count - BACKUP_RETENTION ))")
-}
-
-backup_latest() {
-    find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | LC_ALL=C sort | tail -n1
 }

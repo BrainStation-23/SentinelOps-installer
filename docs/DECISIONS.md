@@ -487,3 +487,121 @@ direct exposure is no longer wanted once one exists. Its config transform
 (`_domain_apply_settings`) is kept separate from the Docker restart
 (`_domain_set`) specifically so it can be unit-tested without a live stack,
 the same split `_nuke_filesystem`/`cmd_nuke` already use.
+
+---
+
+## 23. Backup scope widened to the full stack, not just Postgres
+
+**The gap:** `create_database_backup()` only ran `pg_dumpall`. Supabase
+Storage's actual uploaded objects and the deployed edge functions had no
+backup path at all — a "successful" backup could not reconstitute a working
+install, only its database.
+
+**The fix:** `backup_create_full()` (`lib/backup.sh`, replacing
+`create_database_backup()`) archives `supabase/volumes/storage` and
+`supabase/volumes/functions` alongside the SQL dump, plus a `config.tar.gz`
+holding `supabase/.env`, `installer.env` and the deploy key — everything a
+fresh box needs besides the backup directory itself. Each backup is still one
+directory per cycle, now with a `checksums.txt` recording a sha256 of every
+file in it, checked before any restore trusts the directory.
+
+**Why one directory shape, not separate mechanisms for local vs. remote:**
+restic (§24) backs up that exact directory. A restic-sourced restore
+therefore reproduces the identical shape a local restore already reads, so
+`_restore_apply()` is the *only* restore implementation, used regardless of
+whether its input is a local backup directory or a staging directory restic
+just restored a snapshot into. Two restore code paths for "the same data,
+different source" would have been two places to keep in sync and two places
+for a subtle divergence to hide.
+
+---
+
+## 24. restic drives the 3-2-1 copies; both roles are opt-in, off by default
+
+**The gap:** `BACKUP_DIR` is always `${INSTALL_DIR}/backups`, on the same
+disk as the data it protects against. There was no second copy anywhere, no
+offsite copy, and nothing encrypts a backup at rest.
+
+**The fix:** two independently-configurable restic repository roles —
+`secondary` (a different local/attached medium: a second disk, a NAS mount)
+and `offsite` (remote/cloud) — added via `sentinel-ops remote secondary
+configure` / `remote offsite configure`. Neither is required for a normal
+install to work; both are off by default, the same "opt-in, not a default
+install-time prompt" convention as Azure AD (`ENABLE_AZURE_AD`) and LAN
+network exposure before it was flipped to a default (`network enable`, §22)
+— configuring an offsite
+backend needs credentials and a target the installer cannot invent on an
+operator's behalf.
+
+**Why restic specifically:** it is backend-agnostic via a repository URL
+(`s3:`, `b2:`, `sftp:`, a local path, …), so nothing in this installer
+special-cases a cloud provider — the operator supplies a URL and whatever
+credentials that backend needs. More importantly, restic supplies
+repository encryption, deduplication and `forget --keep-daily/weekly/monthly
+--prune` retention as a single, already-audited dependency. Writing any of
+those three ourselves — especially the encryption — would have been a much
+larger and much riskier undertaking than shelling out to a tool that already
+does it. `lib/restic.sh` is a thin, role-based wrapper: every function that
+actually invokes `restic` is one line calling `_restic_run`, and the only
+logic worth unit-testing (path/string mapping, the retention-flag builder)
+is separated out as pure functions, mirroring the `_domain_apply_settings`/
+`_domain_set` split from §22.
+
+**Credentials never touch `installer.env`.** A repository password
+(generated with `random_token 24` unless the operator supplies one) and any
+backend credentials live in `config/restic-<role>.pass`/`.env` (chmod 600),
+exported as real environment variables only for the duration of a single
+`restic` invocation inside `_restic_run`, then unset — the same
+export-around-the-call pattern `frontend_run_container()` already uses for
+`SUPABASE_SERVICE_ROLE_KEY` (`lib/frontend.sh`), because `run_logged` logs
+its argv and nothing sensitive may arrive there as `NAME=value` text.
+
+---
+
+## 25. `BACKUP_DIR` stays derived-only
+
+3-2-1's "different medium" requirement could have been satisfied by letting
+`BACKUP_DIR` be relocated independently (adding it to `config_load`'s
+allowlist, currently it is written to `installer.env` for readability but
+never read back). That was deliberately not done.
+
+The `secondary` restic role (§24) already covers "a copy on different
+media" — properly, with encryption and retention, not just a relocated
+directory. Decoupling `BACKUP_DIR` from `INSTALL_DIR` would also silently
+break `nuke --keep-backups`, which assumes `backups/` lives inside
+`INSTALL_DIR` and is therefore covered by `_nuke_filesystem`'s keep-list. A
+second, independent path to track would be one more thing nuke has to know
+about, for a need the restic role already meets better.
+
+---
+
+## 26. Scheduling tolerates hosts without systemd
+
+`sentinel-ops schedule enable` installs a `sentinel-ops-backup.timer`/
+`.service` pair. On a host with no `systemctl` (a container, WSL without
+systemd) it warns and returns non-fatal rather than dying — exactly the
+contract `service_enable_start()` already has in `lib/os.sh`, which this
+installer already relies on to enable Docker itself gracefully in the same
+situation. An operator on such a host can still run `sentinel-ops backup
+create` or `sentinel-ops schedule run-now` by hand, or wire either into their
+own cron — the installer just doesn't assume systemd is there to do it for
+them.
+
+---
+
+## 27. Verification is lightweight, not a restore drill
+
+Every backup carries a `checksums.txt`, checked before any restore and by
+`sentinel-ops backup verify`; each scheduled cycle also runs a periodic
+`restic check` (default weekly, `BACKUP_SCHEDULE_CHECK_DAY`) against every
+configured repository.
+
+What this deliberately does **not** do is spin up a scratch Postgres
+instance, restore a backup into it and diff the result — a real automated
+restore drill. That would need a disposable database instance's worth of
+extra lifecycle management (start it, wait for it, tear it down, on every
+scheduled cycle) for a guarantee stronger than what checksums plus a
+repository-level integrity check already catch: corruption, truncation, a
+silently-failed upload. `docs/BACKUPS.md` states this boundary explicitly and
+recommends operators test a real restore themselves periodically, so the
+gap is a stated scope decision, not something to rediscover mid-incident.

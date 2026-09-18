@@ -62,7 +62,7 @@ cmd_update_app() {
     phase_end
 
     phase_begin "Database migrations"
-    create_database_backup "pre-app-update" >/dev/null || log_warn "Backup failed; continuing."
+    backup_create_full "pre-app-update" >/dev/null || log_warn "Backup failed; continuing."
     deploy_migrations || die "Migration failed. The running deployment was not modified."
     phase_end
 
@@ -108,7 +108,7 @@ cmd_update_supabase() {
     # Postgres major version or run its own schema migrations.
     phase_begin "Database backup"
     local backup_dir
-    if ! backup_dir="$(create_database_backup "pre-supabase-update")"; then
+    if ! backup_dir="$(backup_create_full "pre-supabase-update")"; then
         die "Refusing to update Supabase without a successful backup."
     fi
     phase_end
