@@ -165,7 +165,7 @@ opinions about both. Installing a second one that binds :80 and :443 would
 conflict with whatever is already there.
 
 What the installer owns instead is a stable contract: the frontend on
-`APP_BIND:APP_PORT` (default `127.0.0.1:3000`) and Supabase Kong on
+`APP_BIND:APP_PORT` (default `127.0.0.1:41820`) and Supabase Kong on
 `127.0.0.1:8000`, both loopback-bound so nothing is publicly exposed by accident.
 `sentinel-ops status` and the post-install summary print both, and
 [REVERSE-PROXY.md](REVERSE-PROXY.md) carries worked nginx, Caddy and Traefik

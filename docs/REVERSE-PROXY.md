@@ -14,7 +14,7 @@ sentinel-ops status     # prints both under "URLs"
 
 | Upstream | Default | What it serves |
 |---|---|---|
-| Frontend | `127.0.0.1:3000` | The React application (Node running the Nitro SSR server) |
+| Frontend | `127.0.0.1:41820` | The React application (Node running the Nitro SSR server) |
 | Supabase API | `127.0.0.1:8000` | Kong — REST, Auth, Storage, Realtime, Edge Functions, Studio |
 
 Both bind to **loopback only** by default (`APP_BIND=127.0.0.1` in
@@ -28,14 +28,17 @@ internet does not.
    your reverse proxy          ← you manage this
       ┌────┴─────┐
       ▼          ▼
- 127.0.0.1:3000  127.0.0.1:8000
+ 127.0.0.1:41820  127.0.0.1:8000
    frontend        Supabase Kong
 ```
 
 ### If the proxy runs elsewhere
 
 Set `APP_BIND=0.0.0.0` in `config/installer.env` and re-run
-`sentinel-ops update app`. **Firewall the port yourself** — nothing else will.
+`sentinel-ops update app`, or use `sentinel-ops network enable`, which does
+the same bind change and also opens the frontend port in `ufw`/`firewalld` if
+one is active. If no firewall is enforcing anything on this host, **firewall
+the port yourself** — nothing else will.
 
 ### If the proxy runs in Docker
 
@@ -47,7 +50,7 @@ docker network connect "$(docker inspect -f \
   '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' supabase-db)" my-proxy
 ```
 
-Then use `sentinel-ops-frontend:3000` and `kong:8000` as the upstreams.
+Then use `sentinel-ops-frontend:41820` and `kong:8000` as the upstreams.
 
 ---
 
@@ -66,7 +69,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/app.sentinelops.com/privkey.pem;
 
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:41820;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
@@ -104,7 +107,7 @@ server {
 
 ```caddyfile
 app.sentinelops.com {
-    reverse_proxy 127.0.0.1:3000
+    reverse_proxy 127.0.0.1:41820
     encode gzip zstd
 }
 
@@ -136,7 +139,7 @@ http:
     sentinel-app:
       loadBalancer:
         servers:
-          - url: "http://127.0.0.1:3000"
+          - url: "http://127.0.0.1:41820"
     sentinel-supabase:
       loadBalancer:
         servers:

@@ -27,8 +27,13 @@ DEPLOY_KEY=""
 # Pass real hostnames (or answer the prompts) when putting it behind a domain.
 SUPABASE_PUBLIC_URL="http://localhost:8000"
 API_EXTERNAL_URL="http://localhost:8000"
-SITE_URL="http://localhost:3000"
-APP_PORT="3000"
+SITE_URL="http://localhost:41820"
+# Deliberately not 3000, 8000, 5432 or 6543: Supabase's own stack always
+# claims those (Studio, Kong, Postgres and its pooler respectively), so a
+# fresh host with nothing else running would still collide with itself on a
+# plain default install. See frontend_prompt_config() in lib/frontend.sh,
+# which re-checks this at install time.
+APP_PORT="41820"
 # Where the frontend's published port is bound. The reverse proxy is the
 # operator's responsibility, so the default is loopback: a proxy on this host
 # reaches it, the public internet does not. Set to 0.0.0.0 only if the proxy

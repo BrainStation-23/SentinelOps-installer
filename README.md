@@ -91,7 +91,14 @@ dig +short supabase.your-domain.tld
 ```
 
 **Firewall.** Nothing in this stack should be publicly exposed except through
-your reverse proxy:
+your reverse proxy. Stock Ubuntu/Debian images ship `ufw` installed but
+**inactive** — a fresh host is wide open until something turns it on — so
+`sentinel-ops install` checks for this and, with your confirmation, enables it
+itself: it allows the SSH port(s) actually configured in `sshd_config` first
+(so it can never lock out the session doing the install), then Supabase's
+gateway port (always publicly bound, upstream's own choice) and the frontend
+port if you chose to expose it, then sets `default deny incoming` and enables
+`ufw`. Decline the prompt and configure it yourself if you'd rather:
 
 ```bash
 sudo ufw default deny incoming
@@ -103,6 +110,9 @@ sudo ufw enable
 
 > Supabase's compose file publishes Kong on `0.0.0.0:8000`. The `default deny
 > incoming` rule above is what keeps it off the internet — do not skip it.
+> On `firewalld` hosts the installer does not enable anything automatically:
+> firewalld ships active by default on the distributions that use it, so an
+> inactive one there is assumed to be a deliberate choice.
 
 **Reverse proxy.** The installer does not install one. Point yours at the
 upstreams it prints — see [docs/REVERSE-PROXY.md](docs/REVERSE-PROXY.md).
@@ -216,7 +226,7 @@ actually runs**.
           your reverse proxy          ← you manage this
               ┌────┴─────┐
               ▼          ▼
-      127.0.0.1:8000   127.0.0.1:3000
+      127.0.0.1:8000   127.0.0.1:41820
       Supabase gateway  Sentinel Ops frontend
               │        (Node, Nitro SSR server)
               ▼
@@ -229,8 +239,14 @@ expose two stable upstreams and tell you what they are:
 
 | Upstream | Default |
 |---|---|
-| Frontend | `127.0.0.1:3000` |
+| Frontend | `127.0.0.1:41820` |
 | Supabase API (Kong) | `127.0.0.1:8000` |
+
+The frontend's default is deliberately not 3000: Supabase's own Studio always
+claims that port, and Kong/Postgres/the pooler always claim 8000/5432/6543, so
+those four are never offered. `sentinel-ops install` validates whatever port
+you choose against this list and against anything else already listening,
+before it ever tries to bind it.
 
 Both bind to **loopback only** (`APP_BIND`), so a proxy on this host reaches
 them and the public internet does not. Supabase's own Kong gateway is left in

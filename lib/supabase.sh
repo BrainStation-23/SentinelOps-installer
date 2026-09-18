@@ -61,12 +61,14 @@ supabase_kong_port() {
     printf '%s' "${p:-8000}"
 }
 
-# Every host port Supabase's own compose file publishes unconditionally, read
-# from its .env when one already exists (an update or a re-run) and falling
-# back to upstream's defaults otherwise (before .env exists, on a fresh
-# install). Used to keep the frontend from being pointed at one of them.
+# Every host port Supabase's own stack claims, read from supabase/.env when
+# one already exists (an update or a re-run) and falling back to upstream's
+# defaults otherwise (before .env exists, on a fresh install). Used to keep
+# the frontend from being pointed at one of them.
 supabase_reserved_ports() {
     local env_file="${SUPABASE_DIR}/.env" p
+    # Studio's UI port. Fixed at 3000, not read from an env var.
+    printf '%s\n' 3000
     p="$(env_get "$env_file" KONG_HTTP_PORT 2>/dev/null || true)";              printf '%s\n' "${p:-8000}"
     p="$(env_get "$env_file" POSTGRES_PORT 2>/dev/null || true)";               printf '%s\n' "${p:-5432}"
     p="$(env_get "$env_file" POOLER_PROXY_PORT_TRANSACTION 2>/dev/null || true)"; printf '%s\n' "${p:-6543}"

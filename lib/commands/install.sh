@@ -41,6 +41,7 @@ _install_supabase_start() {
 }
 
 _install_network() {
+    firewall_ensure_active
     network_apply_firewall
     return 0
 }
