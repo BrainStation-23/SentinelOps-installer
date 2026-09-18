@@ -427,6 +427,19 @@ supabase_db_service() {
     printf 'db'
 }
 
+# The compose service name for the API gateway also differs between
+# releases (Kong historically, "api-gw" on stacks that front it with Envoy -
+# see supabase_check_api's note on that switch).
+supabase_gateway_service() {
+    local s
+    for s in kong api-gw; do
+        if supabase_compose config --services 2>/dev/null | grep -qx "$s"; then
+            printf '%s' "$s"; return 0
+        fi
+    done
+    printf 'kong'
+}
+
 # ---------------------------------------------------------------------------
 # Health checks
 # ---------------------------------------------------------------------------

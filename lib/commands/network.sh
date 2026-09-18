@@ -8,42 +8,76 @@
 # firewall is the only thing standing between it and the internet - see the
 # README's "Firewall" section.
 #
-# This command is for operators who have no reverse proxy yet (or are testing
-# on a private network) and want direct access. It is not the recommended
-# long-term setup: there is no TLS on either port.
+# A fresh install defaults to LAN exposure: SUPABASE_PUBLIC_URL, API_EXTERNAL_URL
+# and SITE_URL are seeded from this host's own LAN IP address (see
+# detect_lan_ip() in lib/common.sh), and the firewall rule that opens the
+# ports is scoped to RFC1918 ranges (see FIREWALL_PRIVATE_RANGES in
+# lib/firewall.sh) rather than to the world. That is enough for an operator on
+# the same network to reach the install with zero manual configuration, without
+# also handing it to the public internet. There is still no TLS on either
+# port - moving to a real domain is `sentinel-ops domain set <hostname>`,
+# which puts a proxy in front instead (see docs/REVERSE-PROXY.md).
 # shellcheck shell=bash
 
 network_prompt_config() {
     section "Public Network Access"
-    printf 'By default the frontend only listens on 127.0.0.1, reachable through a\n'
-    printf 'reverse proxy you run on this host. Supabase'"'"'s own gateway always binds\n'
-    printf 'every interface (upstream'"'"'s choice); the firewall is what keeps it private.\n\n'
-    printf 'Enable this only if you have no reverse proxy yet and accept there is no\n'
-    printf 'TLS on these ports. You can change this later with: sentinel-ops network\n\n'
+    printf 'By default the frontend and Supabase API are reachable from other devices on\n'
+    printf 'this network, using this host'"'"'s own LAN address. Supabase'"'"'s own gateway\n'
+    printf 'always binds every interface (upstream'"'"'s choice); the firewall rule opened\n'
+    printf 'below is scoped to private/LAN address ranges, not the public internet.\n\n'
+    printf 'There is no TLS on either port this way. For a real domain instead, install\n'
+    printf 'normally and run: sentinel-ops domain set <hostname>\n\n'
+    printf 'Toggle this later with: sentinel-ops network\n\n'
 
-    if confirm "Expose the frontend and Supabase API directly to the network now?" n; then
+    local lan_ip
+    lan_ip="$(lan_ip_or_localhost)"
+
+    if confirm "Expose the frontend and Supabase API on the LAN now?" y; then
         APP_BIND="0.0.0.0"
+
+        local kong_port
+        kong_port="$(supabase_kong_port 2>/dev/null || printf 8000)"
+
+        printf '\nThese are what a browser elsewhere on the LAN will use - override them if\n'
+        printf 'this host'"'"'s detected address is wrong, or leave them as printed.\n\n'
+
+        prompt_default SUPABASE_PUBLIC_URL "Supabase public URL" "http://${lan_ip}:${kong_port}"
+        SUPABASE_PUBLIC_URL="$(strip_trailing_slash "$SUPABASE_PUBLIC_URL")"
+
+        prompt_default API_EXTERNAL_URL "API external URL" "$SUPABASE_PUBLIC_URL"
+        API_EXTERNAL_URL="$(strip_trailing_slash "$API_EXTERNAL_URL")"
+
+        prompt_default SITE_URL "Site URL (the Sentinel Ops application)" "http://${lan_ip}:${APP_PORT}"
+        SITE_URL="$(strip_trailing_slash "$SITE_URL")"
     else
         APP_BIND="127.0.0.1"
     fi
 }
 
-# Open the ports implied by the current configuration. Called from a fresh
-# install (after Supabase's .env exists, so the Kong/gateway port is known) and
-# from `network enable`.
+# Open the ports implied by the current configuration, scoped to private/LAN
+# address ranges. Called from a fresh install (after Supabase's .env exists, so
+# the Kong/gateway port is known) and from `network enable`.
 network_apply_firewall() {
     [[ "$APP_BIND" == "0.0.0.0" ]] || { log_debug "Public access not requested; firewall left untouched."; return 0; }
-    firewall_open_port "$APP_PORT" || log_warn "Could not open ${APP_PORT}/tcp automatically."
+    firewall_open_port_private "$APP_PORT" || log_warn "Could not open ${APP_PORT}/tcp automatically."
     if supabase_installed; then
-        firewall_open_port "$(supabase_kong_port)" || log_warn "Could not open $(supabase_kong_port)/tcp automatically."
+        firewall_open_port_private "$(supabase_kong_port)" || log_warn "Could not open $(supabase_kong_port)/tcp automatically."
     fi
     return 0
 }
 
 _network_status() {
     section "Network Exposure"
+    if [[ "$SITE_URL" == https://* ]]; then
+        status_line "Mode" "ok" "Domain configured (${SITE_URL}) - see: sentinel-ops domain status"
+    elif [[ "$APP_BIND" == "0.0.0.0" ]]; then
+        status_line "Mode" "warn" "LAN access enabled, no TLS"
+    else
+        status_line "Mode" "ok" "Loopback only"
+    fi
+
     if [[ "$APP_BIND" == "0.0.0.0" ]]; then
-        status_line "Frontend" "warn" "Public (0.0.0.0:${APP_PORT})"
+        status_line "Frontend" "warn" "LAN-reachable (0.0.0.0:${APP_PORT})"
     else
         status_line "Frontend" "ok" "Loopback only (${APP_BIND:-127.0.0.1}:${APP_PORT})"
     fi
@@ -59,8 +93,29 @@ _network_status() {
     return 0
 }
 
+# Push the in-memory SUPABASE_PUBLIC_URL/API_EXTERNAL_URL/SITE_URL/APP_BIND
+# into both installer.env and supabase/.env, and restart the containers that
+# actually validate against them. Without this, GoTrue (auth) keeps checking
+# redirects against whatever SITE_URL it was started with, no matter what
+# `network enable`/`disable` just changed.
+_network_persist_and_restart() {
+    config_save
+    supabase_apply_config || log_warn "Could not update ${SUPABASE_DIR}/.env with the new URLs."
+
+    if supabase_installed; then
+        log_info "Restarting Kong and Auth so they pick up the current URLs..."
+        if run_logged "restart gateway/auth" bash -c \
+                "$(_supabase_compose_cmd) up -d --force-recreate $(supabase_gateway_service) auth"; then
+            wait_for 60 5 supabase_check_auth && log_ok "Auth healthy" \
+                || log_warn "Auth did not answer its health check; check: sentinel-ops logs supabase"
+        else
+            log_warn "Could not restart Kong/Auth automatically; try: sentinel-ops update supabase"
+        fi
+    fi
+}
+
 _network_enable() {
-    log_warn "This exposes the frontend and Supabase API directly, with no TLS and no reverse proxy."
+    log_warn "This exposes the frontend and Supabase API to this host's LAN, with no TLS."
     log_warn "Anything that can reach this host on these ports can reach the application and the database API."
 
     # confirm() takes the default under --yes, and "n" is the safe default
@@ -73,7 +128,22 @@ _network_enable() {
     fi
 
     APP_BIND="0.0.0.0"
-    config_save
+
+    # Only replace URLs that still point at loopback. An operator who has
+    # already pointed these at a real domain (sentinel-ops domain set) does
+    # not want a bind-address toggle to clobber them back to a bare IP.
+    if [[ "$SUPABASE_PUBLIC_URL" == http://localhost:* || "$SUPABASE_PUBLIC_URL" == http://127.0.0.1:* ]]; then
+        local lan_ip kong_port
+        lan_ip="$(lan_ip_or_localhost)"
+        kong_port="$(supabase_kong_port)"
+        SUPABASE_PUBLIC_URL="http://${lan_ip}:${kong_port}"
+        [[ "$API_EXTERNAL_URL" == http://localhost:* || "$API_EXTERNAL_URL" == http://127.0.0.1:* ]] && \
+            API_EXTERNAL_URL="$SUPABASE_PUBLIC_URL"
+        [[ "$SITE_URL" == http://localhost:* || "$SITE_URL" == http://127.0.0.1:* ]] && \
+            SITE_URL="http://${lan_ip}:${APP_PORT}"
+    fi
+
+    _network_persist_and_restart
     network_apply_firewall
 
     if container_exists "$APP_CONTAINER_NAME"; then
@@ -87,21 +157,24 @@ _network_enable() {
         fi
     fi
     printf '\n'
-    log_ok "Public access enabled."
+    log_ok "LAN access enabled."
+    status_line "Application" "" "$SITE_URL"
+    status_line "Supabase" "" "$SUPABASE_PUBLIC_URL"
+    log_warn "The firewall rule (where a firewall is active) only admits private/LAN address ranges."
     log_warn "Make sure nothing beyond ports 22/${APP_PORT}/$(supabase_kong_port 2>/dev/null || printf 8000) is open on this host's edge."
     return 0
 }
 
 _network_disable() {
     APP_BIND="127.0.0.1"
-    config_save
+    _network_persist_and_restart
 
     if container_exists "$APP_CONTAINER_NAME"; then
         log_info "Restarting the frontend bound to loopback..."
         frontend_run_container "$APP_CONTAINER_NAME" "$(frontend_deployed_image)" "$APP_PORT" \
             && wait_for 60 3 frontend_check_http "$APP_PORT"
     fi
-    firewall_close_port "$APP_PORT"
+    firewall_close_port_private "$APP_PORT"
 
     log_ok "Frontend restricted back to 127.0.0.1."
     log_warn "Supabase's gateway (port $(supabase_kong_port 2>/dev/null || printf 8000)) still binds every interface -"

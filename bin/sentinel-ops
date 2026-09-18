@@ -40,7 +40,7 @@ for _lib in common os prereqs config supabase logflare azure firewall repo front
     # shellcheck source=/dev/null
     source "${SO_LIB_DIR}/${_lib}.sh"
 done
-for _lib in install update status credentials maintenance nuke network azure; do
+for _lib in install update status credentials maintenance nuke network azure domain; do
     # shellcheck source=/dev/null
     source "${SO_LIB_DIR}/commands/${_lib}.sh"
 done
@@ -72,6 +72,9 @@ Commands:
   network [status|enable|disable]
                           Expose (or restrict) the frontend and Supabase API
                           directly on the network - see docs/REVERSE-PROXY.md
+  domain [status|set <hostname>]
+                          Point the stack at a real domain (config + restart,
+                          no reinstall) - see docs/REVERSE-PROXY.md
   azure [status|enable|disable]
                           Configure Azure AD (Microsoft Entra ID) sign-in
   nuke [--keep-*]         Destroy this installation (containers, volumes,
@@ -130,6 +133,7 @@ main() {
         rollback)    cmd_rollback ;;
         logs)        cmd_logs "${rest[@]:-app}" ;;
         network)     cmd_network "${rest[@]:-status}" ;;
+        domain)      cmd_domain "${rest[@]:-status}" ;;
         azure)       cmd_azure "${rest[@]:-status}" ;;
         nuke)        cmd_nuke "${rest[@]:-}" ;;
         version|--version) printf 'sentinel-ops %s\n' "$SO_INSTALLER_VERSION" ;;

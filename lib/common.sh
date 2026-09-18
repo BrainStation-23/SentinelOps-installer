@@ -296,3 +296,43 @@ url_host() {
     url="${url%%:*}"
     printf '%s' "$url"
 }
+
+# This host's real, LAN-reachable IPv4 address - what a browser on another
+# machine on the same network must use instead of "localhost", which resolves
+# to itself, not this server. Prefers the source address the kernel would use
+# to reach the internet (the route it picks is never a loopback or a Docker
+# bridge address, since neither owns the default route), and falls back to
+# the first non-loopback, non-Docker-bridge address `hostname -I` reports.
+# Prints nothing if neither works.
+detect_lan_ip() {
+    local ip=""
+
+    ip="$(ip -4 route get 1.1.1.1 2>/dev/null \
+            | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}')"
+
+    if [[ -z "$ip" ]]; then
+        # Docker's default bridge pool runs 172.17.0.0/16 through
+        # 172.31.0.0/16; 172.16.0.0/16 itself is left alone since a real LAN
+        # is free to use it.
+        ip="$(hostname -I 2>/dev/null \
+                | tr ' ' '\n' \
+                | grep -Ev '^$|^127\.|^172\.1[7-9]\.|^172\.2[0-9]\.|^172\.3[01]\.' \
+                | head -n1)"
+    fi
+
+    printf '%s' "$ip"
+}
+
+# detect_lan_ip(), or "localhost" with a warning when nothing could be
+# detected. Never fails: the installer must still produce a working (if not
+# LAN-reachable) default when a host has no usable address to offer.
+lan_ip_or_localhost() {
+    local ip
+    ip="$(detect_lan_ip)"
+    if [[ -z "$ip" ]]; then
+        log_warn "Could not detect a LAN IPv4 address; defaulting to localhost."
+        log_warn "The application will only be reachable from this host until you set the URLs by hand."
+        ip="localhost"
+    fi
+    printf '%s' "$ip"
+}

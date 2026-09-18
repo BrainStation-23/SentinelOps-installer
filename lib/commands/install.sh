@@ -124,8 +124,10 @@ _install_summary() {
 
     if [[ "$APP_BIND" == "0.0.0.0" ]]; then
         printf '\n'
-        log_warn "Public network access is enabled: the frontend binds every interface and its"
-        log_warn "firewall port was opened. There is no TLS on this. Toggle with: sentinel-ops network"
+        log_warn "LAN access is enabled: the frontend binds every interface, and its firewall"
+        log_warn "rule (where a firewall is active) only admits private/LAN address ranges."
+        log_warn "There is no TLS on this. Toggle with: sentinel-ops network"
+        log_warn "For a real domain instead, run: sentinel-ops domain set <hostname>"
     fi
 
     section "Deployed"

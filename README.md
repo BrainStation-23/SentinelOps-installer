@@ -52,10 +52,12 @@ sentinel-ops credentials     # generated Supabase credentials
 sudo ./install.sh --yes
 ```
 
-`--yes` accepts every default. The endpoint defaults are **localhost** — a
-non-interactive run produces a deployment that works on that host and nowhere
-else. To serve it under a real domain, write `config/installer.env` first, or
-install once interactively and copy that file to the next server.
+`--yes` accepts every default. The endpoint defaults are this host's own
+**LAN IP address** (detected automatically), and the frontend and Supabase API
+are opened to the local network only — so a non-interactive run is reachable
+from another device on the same network with no further configuration, but
+not from the internet. To serve it under a real domain instead, install first
+and then run `sentinel-ops domain set <hostname>` — no reinstall needed.
 
 ---
 
@@ -90,15 +92,16 @@ dig +short app.your-domain.tld
 dig +short supabase.your-domain.tld
 ```
 
-**Firewall.** Nothing in this stack should be publicly exposed except through
-your reverse proxy. Stock Ubuntu/Debian images ship `ufw` installed but
-**inactive** — a fresh host is wide open until something turns it on — so
-`sentinel-ops install` checks for this and, with your confirmation, enables it
-itself: it allows the SSH port(s) actually configured in `sshd_config` first
-(so it can never lock out the session doing the install), then Supabase's
-gateway port (always publicly bound, upstream's own choice) and the frontend
-port if you chose to expose it, then sets `default deny incoming` and enables
-`ufw`. Decline the prompt and configure it yourself if you'd rather:
+**Firewall.** Nothing in this stack should be reachable from the public
+internet except through your reverse proxy. Stock Ubuntu/Debian images ship
+`ufw` installed but **inactive** — a fresh host is wide open until something
+turns it on — so `sentinel-ops install` checks for this and, with your
+confirmation, enables it itself: it allows the SSH port(s) actually configured
+in `sshd_config` first (so it can never lock out the session doing the
+install), then Supabase's gateway port and the frontend port (both scoped to
+private/LAN address ranges — `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` —
+not the world), then sets `default deny incoming` and enables `ufw`. Decline
+the prompt and configure it yourself if you'd rather:
 
 ```bash
 sudo ufw default deny incoming
@@ -117,12 +120,14 @@ sudo ufw enable
 **Reverse proxy.** The installer does not install one. Point yours at the
 upstreams it prints — see [docs/REVERSE-PROXY.md](docs/REVERSE-PROXY.md).
 
-**No reverse proxy yet, or testing on a private network?** `sentinel-ops
-network enable` binds the frontend to every interface (Supabase's gateway
-already does — upstream's own default) and opens both ports in `ufw`/`firewalld`
-if one is active. There is no TLS on either port this way; `sentinel-ops
-network disable` reverts the frontend to loopback-only at any time. See
-`sentinel-ops network status`.
+**LAN access is on by default.** A fresh install binds the frontend to every
+interface (Supabase's gateway already does — upstream's own default) and opens
+both ports to private/LAN address ranges only, so it's reachable from other
+devices on the same network with zero configuration. There is no TLS on either
+port this way. `sentinel-ops network disable` reverts the frontend to
+loopback-only at any time; `sentinel-ops network status` shows which mode is
+active. Ready for a real domain instead? `sentinel-ops domain set <hostname>`
+switches over with a config change and a restart — no reinstall.
 
 ---
 
@@ -141,7 +146,8 @@ network disable` reverts the frontend to loopback-only at any time. See
 | `sentinel-ops restore [backup]` | Restore a backup (latest if omitted) |
 | `sentinel-ops rollback` | Roll the application back to the previous image |
 | `sentinel-ops logs <target>` | `app`, `supabase`, `logflare`, `installer` |
-| `sentinel-ops network [status\|enable\|disable]` | Expose (or restrict) the frontend and Supabase API directly on the network |
+| `sentinel-ops network [status\|enable\|disable]` | Expose (or restrict) the frontend and Supabase API directly on the LAN |
+| `sentinel-ops domain [status\|set <hostname>]` | Point the stack at a real domain (config + restart, no reinstall) |
 | `sentinel-ops azure [status\|enable\|disable]` | Configure Azure AD (Microsoft Entra ID) sign-in |
 | `sentinel-ops nuke` | **Destroy this installation** so a fresh one can be tested |
 

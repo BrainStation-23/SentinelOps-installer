@@ -16,10 +16,11 @@ _menu_installed() {
     printf '  5. Credentials\n'
     printf '  6. Backup database\n'
     printf '  7. Rollback application\n'
-    printf '  8. Network exposure (public access)\n'
-    printf '  9. Azure AD sign-in\n'
-    printf ' 10. Destroy this installation (nuke)\n'
-    printf ' 11. Exit\n\n'
+    printf '  8. Network exposure (LAN access)\n'
+    printf '  9. Point at a real domain\n'
+    printf ' 10. Azure AD sign-in\n'
+    printf ' 11. Destroy this installation (nuke)\n'
+    printf ' 12. Exit\n\n'
     printf 'Select: '
 }
 
@@ -42,7 +43,7 @@ cmd_menu() {
         return 2
     fi
 
-    local choice
+    local choice domain_choice
     while true; do
         if installation_exists; then
             _menu_installed
@@ -56,9 +57,14 @@ cmd_menu() {
                 6) cmd_backup create    || true ;;
                 7) cmd_rollback         || true ;;
                 8) cmd_network          || true ;;
-                9) cmd_azure            || true ;;
-                10) cmd_nuke            || true ;;
-                11|q|quit|exit) return 0 ;;
+                9)
+                    printf 'Domain (e.g. app.example.com): '
+                    IFS= read -r domain_choice || domain_choice=""
+                    [[ -n "$domain_choice" ]] && cmd_domain set "$domain_choice"
+                    ;;
+                10) cmd_azure           || true ;;
+                11) cmd_nuke            || true ;;
+                12|q|quit|exit) return 0 ;;
                 *) log_warn "Invalid selection: ${choice}" ;;
             esac
         else

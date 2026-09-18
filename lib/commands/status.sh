@@ -107,13 +107,20 @@ _status_app() {
 
 _status_urls() {
     section "URLs"
+    if [[ "$SITE_URL" == https://* ]]; then
+        status_line "Mode" "ok" "Domain - see: sentinel-ops domain status"
+    elif [[ "$APP_BIND" == "0.0.0.0" ]]; then
+        status_line "Mode" "warn" "LAN access, no TLS - see: sentinel-ops network status"
+    else
+        status_line "Mode" "ok" "Loopback only"
+    fi
     status_line "Application" "" "$SITE_URL"
     status_line "Supabase" "" "$SUPABASE_PUBLIC_URL"
     # These are what your reverse proxy should point at.
     status_line "Frontend upstream" "" "${APP_BIND:-127.0.0.1}:${APP_PORT}"
     status_line "Supabase upstream" "" "127.0.0.1:$(supabase_kong_port)"
     if [[ "$APP_BIND" == "0.0.0.0" ]]; then
-        status_line "Public access" "warn" "Frontend bound to 0.0.0.0 - see: sentinel-ops network"
+        status_line "LAN access" "warn" "Frontend bound to 0.0.0.0 - see: sentinel-ops network"
     fi
     return 0
 }

@@ -4,7 +4,38 @@ The installer does **not** install or manage a reverse proxy. TLS termination,
 certificates and routing are the host's responsibility, to be handled however
 that host already does it.
 
-What the installer guarantees is a stable pair of upstreams to point at.
+## Moving to a real domain
+
+The recommended first step, once you have a hostname and a proxy in mind, is:
+
+```bash
+sudo sentinel-ops domain set app.example.com
+```
+
+This does everything a domain move needs in one config change plus a
+restart - **no reinstall, no rebuild, no data loss**:
+
+- sets `SUPABASE_PUBLIC_URL`, `API_EXTERNAL_URL` and `SITE_URL` to
+  `https://app.example.com`
+- adds it to `ADDITIONAL_REDIRECT_URLS` so auth redirects keep working
+- flips `APP_BIND` back to `127.0.0.1` (a domain implies a proxy in front, so
+  direct exposure is no longer wanted - see
+  [DECISIONS.md #7](DECISIONS.md#7-no-reverse-proxy-is-installed))
+- persists both to `config/installer.env` and `supabase/.env`, then restarts
+  Kong, Auth and the frontend so they pick up the new URLs
+
+Run `sentinel-ops domain status` at any time to see which mode (loopback, LAN
+or domain) is currently active. This replaces hand-editing
+`config/installer.env` - do that only for settings `domain set` does not
+cover.
+
+What it does **not** do is register DNS or run a proxy: point `app.example.com`
+at this server yourself, and see the worked configurations below for the proxy
+that terminates TLS and forwards to the two upstreams `domain set` just
+printed.
+
+What the installer guarantees regardless of mode is a stable pair of
+upstreams to point at.
 
 ## The two upstreams
 
@@ -17,9 +48,12 @@ sentinel-ops status     # prints both under "URLs"
 | Frontend | `127.0.0.1:41820` | The React application (Node running the Nitro SSR server) |
 | Supabase API | `127.0.0.1:8000` | Kong — REST, Auth, Storage, Realtime, Edge Functions, Studio |
 
-Both bind to **loopback only** by default (`APP_BIND=127.0.0.1` in
-`config/installer.env`). A proxy running on this host reaches them; the public
-internet does not.
+A fresh install binds both to every interface (`APP_BIND=0.0.0.0`) so the LAN
+can reach them with zero manual config - see [DECISIONS.md
+#7](DECISIONS.md#7-no-reverse-proxy-is-installed) and `sentinel-ops network
+status`. Once you put a proxy in front with `sentinel-ops domain set`,
+`APP_BIND` goes back to **loopback only**: the proxy on this host reaches
+them, the public internet does not.
 
 ```
         Internet

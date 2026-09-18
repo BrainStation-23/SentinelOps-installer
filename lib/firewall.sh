@@ -15,6 +15,11 @@
 # Set by firewall_detect(): ufw | firewalld | none
 FIREWALL_BACKEND=""
 
+# RFC1918 private address space. A rule scoped to these three ranges reaches
+# every real LAN without also reaching the public internet on a host that
+# happens to carry a public IP too.
+readonly FIREWALL_PRIVATE_RANGES="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
+
 firewall_detect() {
     if have_cmd ufw; then
         FIREWALL_BACKEND="ufw"
@@ -92,6 +97,77 @@ firewall_close_port() {
     return 0
 }
 
+# firewall_open_port_private <port> [proto=tcp] - like firewall_open_port, but
+# the rule only ever admits FIREWALL_PRIVATE_RANGES. This is what "reachable
+# on the LAN" (sentinel-ops network enable, and a fresh install's default)
+# opens: unlike firewall_open_port's `allow <port>`, it cannot turn into
+# "reachable from the internet" just because the host also carries a public
+# IP.
+firewall_open_port_private() {
+    local port="$1" proto="${2:-tcp}" cidr
+    firewall_detect >/dev/null
+
+    case "$FIREWALL_BACKEND" in
+        none)
+            log_warn "No supported firewall manager (ufw/firewalld) found."
+            log_warn "Port ${port}/${proto} was not opened automatically; open it with whatever this host uses."
+            return 0
+            ;;
+    esac
+
+    if ! firewall_active; then
+        log_warn "${FIREWALL_BACKEND} is installed but not active; port ${port}/${proto} was not explicitly opened."
+        log_warn "It is also not blocked - an inactive firewall filters nothing."
+        return 0
+    fi
+
+    case "$FIREWALL_BACKEND" in
+        ufw)
+            for cidr in $FIREWALL_PRIVATE_RANGES; do
+                run_logged "ufw allow from ${cidr} to any port ${port} proto ${proto}" \
+                    ufw allow from "$cidr" to any port "$port" proto "$proto" || return 1
+            done
+            ;;
+        firewalld)
+            for cidr in $FIREWALL_PRIVATE_RANGES; do
+                run_logged "firewall-cmd add-rich-rule (${cidr}:${port})" \
+                    firewall-cmd --permanent --add-rich-rule="rule family=\"ipv4\" source address=\"${cidr}\" port port=\"${port}\" protocol=\"${proto}\" accept" \
+                    || return 1
+            done
+            run_logged "firewall-cmd reload" firewall-cmd --reload || return 1
+            ;;
+    esac
+    log_ok "Opened ${port}/${proto} in ${FIREWALL_BACKEND}, restricted to private/LAN address ranges"
+    return 0
+}
+
+# firewall_close_port_private <port> [proto=tcp] - removes what
+# firewall_open_port_private added. Best effort, never fatal.
+firewall_close_port_private() {
+    local port="$1" proto="${2:-tcp}" cidr
+    firewall_detect >/dev/null
+    firewall_active || return 0
+
+    case "$FIREWALL_BACKEND" in
+        ufw)
+            for cidr in $FIREWALL_PRIVATE_RANGES; do
+                run_logged "ufw delete allow from ${cidr} to any port ${port} proto ${proto}" \
+                    ufw delete allow from "$cidr" to any port "$port" proto "$proto" || true
+            done
+            ;;
+        firewalld)
+            for cidr in $FIREWALL_PRIVATE_RANGES; do
+                run_logged "firewall-cmd remove-rich-rule (${cidr}:${port})" \
+                    firewall-cmd --permanent --remove-rich-rule="rule family=\"ipv4\" source address=\"${cidr}\" port port=\"${port}\" protocol=\"${proto}\" accept" \
+                    || true
+            done
+            run_logged "firewall-cmd reload" firewall-cmd --reload || true
+            ;;
+    esac
+    log_ok "Closed ${port}/${proto} (private-range rule) in ${FIREWALL_BACKEND}"
+    return 0
+}
+
 # ---------------------------------------------------------------------------
 # Bringing an inactive firewall up
 # ---------------------------------------------------------------------------
@@ -135,10 +211,11 @@ firewall_ensure_active() {
     esac
 
     log_warn "ufw is installed but not active - this host has no firewall enforcing anything."
-    local ssh_ports port allow_desc
+    local ssh_ports port cidr kong_port allow_desc
     ssh_ports="$(firewall_ssh_ports)"
-    allow_desc="SSH (${ssh_ports// /, }), Supabase gateway ($(supabase_kong_port 2>/dev/null || printf 8000))"
-    [[ "${APP_BIND:-}" == "0.0.0.0" ]] && allow_desc="${allow_desc}, frontend (${APP_PORT})"
+    kong_port="$(supabase_kong_port 2>/dev/null || printf 8000)"
+    allow_desc="SSH (${ssh_ports// /, }, from anywhere), Supabase gateway (${kong_port}, LAN only)"
+    [[ "${APP_BIND:-}" == "0.0.0.0" ]] && allow_desc="${allow_desc}, frontend (${APP_PORT}, LAN only)"
 
     if ! confirm "Enable ufw now with a safe default (deny incoming except ${allow_desc})?" y; then
         log_warn "Leaving ufw inactive. Configure a firewall yourself - see the README's Firewall section."
@@ -151,11 +228,16 @@ firewall_ensure_active() {
             return 1
         }
     done
-    run_logged "ufw allow $(supabase_kong_port 2>/dev/null || printf 8000)/tcp" \
-        ufw allow "$(supabase_kong_port 2>/dev/null || printf 8000)/tcp" || true
-    if [[ "${APP_BIND:-}" == "0.0.0.0" ]]; then
-        run_logged "ufw allow ${APP_PORT}/tcp" ufw allow "${APP_PORT}/tcp" || true
-    fi
+    # The gateway and frontend are scoped to private/LAN ranges, not opened to
+    # the world - see FIREWALL_PRIVATE_RANGES.
+    for cidr in $FIREWALL_PRIVATE_RANGES; do
+        run_logged "ufw allow from ${cidr} to any port ${kong_port} proto tcp" \
+            ufw allow from "$cidr" to any port "$kong_port" proto tcp || true
+        if [[ "${APP_BIND:-}" == "0.0.0.0" ]]; then
+            run_logged "ufw allow from ${cidr} to any port ${APP_PORT} proto tcp" \
+                ufw allow from "$cidr" to any port "$APP_PORT" proto tcp || true
+        fi
+    done
     run_logged "ufw default deny incoming"  ufw default deny incoming  || true
     run_logged "ufw default allow outgoing" ufw default allow outgoing || true
 

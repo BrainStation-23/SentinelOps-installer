@@ -441,3 +441,49 @@ exercised it. Carrying an alternate, unverified build path is worse than not
 having one: it looks supported, and the first person to rely on it discovers
 otherwise during an incident. The in-Docker path is the only one that matters
 and the only one this project has ever actually run.
+
+---
+
+## 22. A default install exposes the LAN, not just the loopback host
+
+**The bug:** `SUPABASE_PUBLIC_URL`/`API_EXTERNAL_URL`/`SITE_URL` defaulted to
+`http://localhost:*`. The browser gets these values verbatim through
+`/runtime-config.js` (see §8), so from any machine other than the server
+itself, `localhost` resolves to *that machine*, not the server, and every
+Supabase call fails with `ERR_CONNECTION_REFUSED`. `network_prompt_config`/
+`network enable` opened the ports but never touched these URLs, so the bug
+survived even after opting into network access — the two problems look like
+one but were always two.
+
+**The fix, without reversing §7:** §7's contract (no reverse proxy installed,
+loopback-safe by default) is about *who runs TLS*, not about which address the
+loopback default should be. A fresh install (interactive or `--yes`) now:
+
+- detects this host's real LAN IPv4 address (`detect_lan_ip()` in
+  `lib/common.sh`: the source address of the default route, falling back to
+  `hostname -I`), and seeds the three URL prompts with it, not `localhost`;
+- defaults the network-exposure prompt to **yes**, so a default run is
+  reachable from another device on the LAN with no manual configuration;
+- scopes the firewall rule it opens to `FIREWALL_PRIVATE_RANGES`
+  (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) instead of the world, so
+  "reachable on the LAN" cannot silently become "reachable from the internet"
+  on a box that also carries a public IP.
+
+`network enable`/`disable` had a second bug worth its own line: they called
+`config_save` (which writes `config/installer.env`, this installer's *own*
+bookkeeping) but never `supabase_apply_config` (which writes `supabase/.env`,
+what Kong and GoTrue actually read), and restarted only the frontend. Auth
+kept validating redirects against whatever `SITE_URL` it booted with,
+indefinitely. Both commands now call `supabase_apply_config` and recreate
+Kong and Auth (`supabase_gateway_service()` resolves the compose service name,
+since it has changed across releases — see §12) alongside the frontend.
+
+**The domain path stays a restart, not a reinstall.** `sentinel-ops domain set
+<hostname>` is the first-class way to move off LAN URLs entirely: it sets all
+three URLs to `https://<hostname>`, updates `ADDITIONAL_REDIRECT_URLS` (the
+same logic §8's `supabase_apply_config` already runs at install time), and
+flips `APP_BIND` back to `127.0.0.1` — a domain implies a proxy in front, and
+direct exposure is no longer wanted once one exists. Its config transform
+(`_domain_apply_settings`) is kept separate from the Docker restart
+(`_domain_set`) specifically so it can be unit-tested without a live stack,
+the same split `_nuke_filesystem`/`cmd_nuke` already use.
