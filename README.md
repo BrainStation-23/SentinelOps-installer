@@ -24,8 +24,16 @@ git clone https://github.com/BrainStation-23/SentinelOps-installer.git
 cd SentinelOps-installer
 cp /path/to/deploy_key ./deploy_key      # private SSH key for the app repo
 chmod 600 ./deploy_key
+chmod +x install.sh                      # git doesn't always preserve this bit - see below
 sudo ./install.sh
 ```
+
+`install.sh` is committed as executable, but some ways of getting the code
+onto the server strip that bit anyway (a GitHub "Download ZIP", an `scp`/`rsync`
+without `-p`, a corporate file-transfer tool) — `chmod +x` is a no-op if it's
+already set, so it's safe to run unconditionally. If you forget it,
+`./install.sh` fails with `Permission denied`; either run `chmod +x install.sh`
+and retry, or run it via the interpreter instead: `sudo bash install.sh`.
 
 After installation the `sentinel-ops` command is on `PATH`:
 
