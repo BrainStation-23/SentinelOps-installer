@@ -319,18 +319,31 @@ supabase_generate_secrets() {
 
 # Interactive prompts for the externally visible settings only. Secrets are
 # never requested from the operator.
+#
+# Called after network_prompt_config has set APP_BIND, so the defaults offered
+# here already match that choice - this host's LAN address when exposed, the
+# loopback-safe placeholder otherwise - instead of asking for the same three
+# URLs twice with different defaults each time.
 supabase_prompt_config() {
     section "Supabase Configuration"
 
-    prompt_default SUPABASE_PUBLIC_URL "Supabase public URL" "$SUPABASE_PUBLIC_URL"
+    local default_public_url="$SUPABASE_PUBLIC_URL" default_site_url="$SITE_URL"
+    if [[ "$APP_BIND" == "0.0.0.0" ]]; then
+        local lan_ip kong_port
+        lan_ip="$(lan_ip_or_localhost)"
+        kong_port="$(supabase_kong_port 2>/dev/null || printf 8000)"
+        default_public_url="http://${lan_ip}:${kong_port}"
+        default_site_url="http://${lan_ip}:${APP_PORT}"
+    fi
+
+    prompt_default SUPABASE_PUBLIC_URL "Supabase public URL" "$default_public_url"
     SUPABASE_PUBLIC_URL="$(strip_trailing_slash "$SUPABASE_PUBLIC_URL")"
 
     prompt_default API_EXTERNAL_URL "API external URL" "$SUPABASE_PUBLIC_URL"
     API_EXTERNAL_URL="$(strip_trailing_slash "$API_EXTERNAL_URL")"
 
-    prompt_default SITE_URL "Site URL (the Sentinel Ops application)" "$SITE_URL"
+    prompt_default SITE_URL "Site URL (the Sentinel Ops application)" "$default_site_url"
     SITE_URL="$(strip_trailing_slash "$SITE_URL")"
-
 }
 
 # Apply the operator's settings to supabase/.env. Only these keys are managed;

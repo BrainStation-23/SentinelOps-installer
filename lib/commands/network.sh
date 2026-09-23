@@ -29,26 +29,8 @@ network_prompt_config() {
     printf 'normally and run: sentinel-ops domain set <hostname>\n\n'
     printf 'Toggle this later with: sentinel-ops network\n\n'
 
-    local lan_ip
-    lan_ip="$(lan_ip_or_localhost)"
-
     if confirm "Expose the frontend and Supabase API on the LAN now?" y; then
         APP_BIND="0.0.0.0"
-
-        local kong_port
-        kong_port="$(supabase_kong_port 2>/dev/null || printf 8000)"
-
-        printf '\nThese are what a browser elsewhere on the LAN will use - override them if\n'
-        printf 'this host'"'"'s detected address is wrong, or leave them as printed.\n\n'
-
-        prompt_default SUPABASE_PUBLIC_URL "Supabase public URL" "http://${lan_ip}:${kong_port}"
-        SUPABASE_PUBLIC_URL="$(strip_trailing_slash "$SUPABASE_PUBLIC_URL")"
-
-        prompt_default API_EXTERNAL_URL "API external URL" "$SUPABASE_PUBLIC_URL"
-        API_EXTERNAL_URL="$(strip_trailing_slash "$API_EXTERNAL_URL")"
-
-        prompt_default SITE_URL "Site URL (the Sentinel Ops application)" "http://${lan_ip}:${APP_PORT}"
-        SITE_URL="$(strip_trailing_slash "$SITE_URL")"
     else
         APP_BIND="127.0.0.1"
     fi

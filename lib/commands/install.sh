@@ -96,13 +96,17 @@ _install_prompt_install_dir() {
 _install_collect_config() {
     # Re-use anything already recorded, so a resumed install does not re-ask.
     config_load 2>/dev/null || true
-    supabase_prompt_config
+
+    # Network exposure and the frontend port are decided first: Supabase's own
+    # URL prompts need APP_BIND (LAN vs loopback) and APP_PORT to offer the
+    # right default, rather than asking for the same three URLs twice.
     frontend_prompt_config
+    network_prompt_config
+    supabase_prompt_config
     repo_prompt_config
 
     logflare_prompt_config
     azure_prompt_config
-    network_prompt_config
 
     config_save
 }
