@@ -17,18 +17,7 @@ Before you begin you need an **SSH deploy key** for the private Sentinel Ops
 application repository, and DNS for your two hostnames already pointing at this
 server. See [Before you install](#before-you-install).
 
-### One-liner
-
-Run this from a directory containing your `deploy_key`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/BrainStation-23/SentinelOps-installer/main/install.sh | sudo bash
-```
-
-It downloads the installer, reattaches your terminal so the guided prompts still
-work, and starts the installation.
-
-### From a clone
+Clone the installer and run it from a directory containing your `deploy_key`:
 
 ```bash
 git clone https://github.com/BrainStation-23/SentinelOps-installer.git
@@ -400,15 +389,16 @@ wins.
 
 ## Updating the installer itself
 
-The one-liner always installs whatever is on `main`. To install from a branch:
+To install from a branch instead of `main`, clone it directly:
 
 ```bash
-SENTINEL_OPS_INSTALLER_BRANCH=my-branch   curl -fsSL https://raw.githubusercontent.com/BrainStation-23/SentinelOps-installer/my-branch/install.sh | sudo -E bash
+git clone --branch my-branch https://github.com/BrainStation-23/SentinelOps-installer.git
+cd SentinelOps-installer
+sudo ./install.sh
 ```
 
-`sudo -E` preserves the variable. On an existing server, pulling a newer
-installer and re-running `sudo ./install.sh` is safe — completed phases are
-skipped.
+On an existing server, pulling a newer installer (`git pull`) and re-running
+`sudo ./install.sh` is safe — completed phases are skipped.
 
 ---
 
