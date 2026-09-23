@@ -21,8 +21,9 @@ _menu_installed() {
     printf ' 10. Offsite/secondary backup (3-2-1)\n'
     printf ' 11. Backup schedule\n'
     printf ' 12. Azure AD sign-in\n'
-    printf ' 13. Destroy this installation (nuke)\n'
-    printf ' 14. Exit\n\n'
+    printf ' 13. Repair supabase/.env (validate and auto-fix)\n'
+    printf ' 14. Destroy this installation (nuke)\n'
+    printf ' 15. Exit\n\n'
     printf 'Select: '
 }
 
@@ -67,8 +68,9 @@ cmd_menu() {
                 10) cmd_remote status   || true ;;
                 11) cmd_schedule status || true ;;
                 12) cmd_azure           || true ;;
-                13) cmd_nuke            || true ;;
-                14|q|quit|exit) return 0 ;;
+                13) cmd_repair check    || true ;;
+                14) cmd_nuke            || true ;;
+                15|q|quit|exit) return 0 ;;
                 *) log_warn "Invalid selection: ${choice}" ;;
             esac
         else

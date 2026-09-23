@@ -24,7 +24,7 @@ AZURE_TENANT_ID=""
 # run; never persisted to installer.env and never logged.
 AZURE_CLIENT_SECRET=""
 
-_azure_redirect_uri() { printf '%s/callback' "${API_EXTERNAL_URL}"; }
+_azure_redirect_uri() { printf '%s/auth/v1/callback' "${API_EXTERNAL_URL}"; }
 
 azure_prompt_config() {
     section "Azure AD (Microsoft Entra ID) Sign-In"
@@ -81,6 +81,12 @@ azure_apply_config() {
 # generic per-provider "URL" field; upstream's compose simply never wires it
 # for Azure). Idempotent: a line already uncommented, or an URL line already
 # present, is left alone.
+#
+# Also fixes upstream's REDIRECT_URI value in passing: it ships as
+# ${API_EXTERNAL_URL}/callback, but Kong only routes /auth/v1/callback through
+# to gotrue's /callback handler (strip_path: true) - a bare /callback at the
+# Kong root has no matching route and never reaches gotrue. See
+# _azure_redirect_uri(), which the operator is told to register with Azure.
 azure_patch_compose() {
     [[ "$ENABLE_AZURE_AD" == "true" ]] || return 0
 
@@ -98,6 +104,9 @@ azure_patch_compose() {
     awk -v have_url="$(grep -c 'GOTRUE_EXTERNAL_AZURE_URL' "$compose")" '
         /GOTRUE_EXTERNAL_AZURE_(ENABLED|CLIENT_ID|SECRET|REDIRECT_URI):/ {
             sub(/#[[:space:]]*/, "")
+            if ($0 ~ /GOTRUE_EXTERNAL_AZURE_REDIRECT_URI:/ && $0 !~ /\/auth\/v1\/callback/) {
+                sub(/\/callback[[:space:]]*$/, "/auth/v1/callback")
+            }
             print
             if ($0 ~ /GOTRUE_EXTERNAL_AZURE_REDIRECT_URI:/ && have_url == 0) {
                 indent = $0

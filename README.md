@@ -140,6 +140,7 @@ switches over with a config change and a restart — no reinstall.
 | `sentinel-ops network [status\|enable\|disable]` | Expose (or restrict) the frontend and Supabase API directly on the LAN |
 | `sentinel-ops domain [status\|set <hostname>]` | Point the stack at a real domain (config + restart, no reinstall) |
 | `sentinel-ops azure [status\|enable\|disable]` | Configure Azure AD (Microsoft Entra ID) sign-in |
+| `sentinel-ops repair [check\|apply]` | Validate `supabase/.env` for known mechanical mistakes and fix them |
 | `sentinel-ops nuke` | **Destroy this installation** so a fresh one can be tested |
 
 Global options: `--dir <path>`, `--yes`, `--show`, `--force`, `--debug`.
@@ -356,11 +357,25 @@ uncommenting the `GOTRUE_EXTERNAL_AZURE_*` lines in `docker-compose.yml`, which
 upstream ships disabled and which setting `.env` alone does not turn on.
 
 The redirect URI to register on the app registration is
-`<API_EXTERNAL_URL>/callback`, printed by `sentinel-ops azure status` and by
+`<API_EXTERNAL_URL>/auth/v1/callback`, printed by `sentinel-ops azure status` and by
 the install summary when enabled at install time. Re-applied automatically
 after `sentinel-ops update supabase`, which otherwise resets the compose file
 to upstream's commented-out default. Full detail in
 [docs/AZURE-AD.md](docs/AZURE-AD.md).
+
+## Repairing supabase/.env
+
+`sentinel-ops repair check` scans `supabase/.env` for the class of mistake
+that silently corrupts a value Compose or gotrue read literally: CRLF line
+endings, trailing whitespace, spaces around `=` (`SITE_URL = http://x` is not
+the same value as `SITE_URL=http://x`), duplicate keys, and a trailing slash
+on `SUPABASE_PUBLIC_URL`/`API_EXTERNAL_URL`/`SITE_URL`. `sentinel-ops repair
+apply` fixes what it can (keeping a timestamped backup alongside the file),
+re-wires Azure AD if its compose wiring drifted back to upstream's broken
+redirect URI, and restarts Kong/Auth so the fixes actually take effect — a
+container already has the old environment loaded; editing the file alone
+changes nothing until it is recreated. It never touches a real configuration
+choice (a custom domain, a disabled provider), only mechanical formatting.
 
 ## Frontend build
 

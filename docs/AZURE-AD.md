@@ -21,7 +21,7 @@ exactly that reason: uncommenting
 GOTRUE_EXTERNAL_AZURE_ENABLED: ${AZURE_ENABLED}
 GOTRUE_EXTERNAL_AZURE_CLIENT_ID: ${AZURE_CLIENT_ID}
 GOTRUE_EXTERNAL_AZURE_SECRET: ${AZURE_SECRET}
-GOTRUE_EXTERNAL_AZURE_REDIRECT_URI: ${API_EXTERNAL_URL}/callback
+GOTRUE_EXTERNAL_AZURE_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
 ```
 
 in the `auth` service's `environment:` block, and inserting one line upstream
@@ -37,6 +37,15 @@ in gotrue's provider configuration for every OIDC-style provider, upstream's
 compose file simply never wires it for Azure. Without it, sign-in defaults to
 `login.microsoftonline.com/common`, which still works but does not restrict who
 can attempt to sign in to your own directory.
+
+Upstream also ships the `REDIRECT_URI` line above as `${API_EXTERNAL_URL}/callback`
+— a bare `/callback` at the Kong root, which has no route once traffic reaches
+the gateway (Kong only maps `/auth/v1/callback`, with `strip_path: true`,
+through to gotrue's own `/callback` handler). `azure_patch_compose()` rewrites
+the path to `/auth/v1/callback` as part of uncommenting it, so the value the
+running container actually uses matches what's registered with Azure. The same
+path is what `_azure_redirect_uri()` prints to the operator to register in
+Entra ID before enabling.
 
 The patch is idempotent (a line already uncommented, or a `GOTRUE_EXTERNAL_AZURE_URL`
 line already present, is left alone) and re-applied automatically after every
@@ -70,7 +79,7 @@ writes to the installer log.
 Register this exact value on the app registration before enabling:
 
 ```
-<API_EXTERNAL_URL>/callback
+<API_EXTERNAL_URL>/auth/v1/callback
 ```
 
 `sentinel-ops azure status` (and the install summary, when enabled at install
@@ -99,8 +108,12 @@ upstream restructured it. `.env` is configured correctly; the compose file
 needs the equivalent lines added by hand for this specific release.
 
 **Sign-in redirects but fails immediately.** Almost always a redirect URI
-mismatch — it must match `<API_EXTERNAL_URL>/callback` exactly, including
-scheme and trailing slash (there is none).
+mismatch — it must match `<API_EXTERNAL_URL>/auth/v1/callback` exactly,
+including scheme and trailing slash (there is none). An installation enabled
+before this path was corrected to include `/auth/v1` still has the old value
+wired into `docker-compose.yml`; run `sentinel-ops repair apply` to re-wire it
+and restart Auth, then update the redirect URI registered in Entra ID to
+match. See [../README.md#repairing-supabaseenv](../README.md#repairing-supabaseenv).
 
 **Works for some accounts and not others.** `AZURE_URL` (the tenant) is unset,
 so gotrue is using the `common` endpoint. Set a tenant ID with

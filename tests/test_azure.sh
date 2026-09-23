@@ -62,8 +62,8 @@ check "CLIENT_ID uncommented" \
     "1" "$(grep -c '^      GOTRUE_EXTERNAL_AZURE_CLIENT_ID: \${AZURE_CLIENT_ID}$' "${T}/docker-compose.yml")"
 check "SECRET uncommented" \
     "1" "$(grep -c '^      GOTRUE_EXTERNAL_AZURE_SECRET: \${AZURE_SECRET}$' "${T}/docker-compose.yml")"
-check "REDIRECT_URI uncommented" \
-    "1" "$(grep -c '^      GOTRUE_EXTERNAL_AZURE_REDIRECT_URI: \${API_EXTERNAL_URL}/callback$' "${T}/docker-compose.yml")"
+check "REDIRECT_URI uncommented and fixed to /auth/v1/callback" \
+    "1" "$(grep -c '^      GOTRUE_EXTERNAL_AZURE_REDIRECT_URI: \${API_EXTERNAL_URL}/auth/v1/callback$' "${T}/docker-compose.yml")"
 check "URL line inserted once" \
     "1" "$(grep -c 'GOTRUE_EXTERNAL_AZURE_URL: \${AZURE_URL:-}' "${T}/docker-compose.yml")"
 check "unrelated GOOGLE lines untouched" \
@@ -88,7 +88,7 @@ check "missing wiring returns non-zero" "1" "$?"
 
 # --- redirect URI helper ----------------------------------------------------
 API_EXTERNAL_URL="https://supabase.example.com"
-check "redirect uri" "https://supabase.example.com/callback" "$(_azure_redirect_uri)"
+check "redirect uri" "https://supabase.example.com/auth/v1/callback" "$(_azure_redirect_uri)"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 rm -rf "$T"
