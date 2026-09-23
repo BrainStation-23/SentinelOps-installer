@@ -162,12 +162,18 @@ prompt_default() {
     local __var="$1" question="$2" default="$3" answer=""
     if [[ "$SO_ASSUME_YES" == "true" || ! -t 0 ]]; then
         printf '%s\n  [%s] (auto)\n' "$question" "$default"
-        printf -v "$__var" '%s' "$default"
-        return 0
+        answer="$default"
+    else
+        printf '%s\n  [%s]: ' "$question" "$default"
+        IFS= read -r answer || answer=""
+        [[ -z "$answer" ]] && answer="$default"
     fi
-    printf '%s\n  [%s]: ' "$question" "$default"
-    IFS= read -r answer || answer=""
-    [[ -z "$answer" ]] && answer="$default"
+    # Trim leading/trailing whitespace: a stray space picked up from a paste
+    # (e.g. a hostname) is invisible at the prompt but corrupts anything this
+    # value later gets concatenated into, such as Supabase's redirect-URL
+    # allow list.
+    answer="${answer#"${answer%%[![:space:]]*}"}"
+    answer="${answer%"${answer##*[![:space:]]}"}"
     printf -v "$__var" '%s' "$answer"
 }
 

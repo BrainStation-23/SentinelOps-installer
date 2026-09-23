@@ -502,6 +502,20 @@ supabase_check_studio() {
     [[ "$health" == "healthy" || "$health" == "none" ]] && supabase_service_running studio
 }
 
+# A failed health check on its own doesn't say why - the operator is left to
+# find and read `docker logs` themselves. Since the container id and its
+# running state are already known here, print its own crash reason instead.
+_log_container_crash() {
+    local service="$1" cid line
+    cid="$(supabase_container_id "$service")"
+    [[ -n "$cid" ]] || return 0
+    supabase_service_running "$service" && return 0
+    log_error "  ${service} container is not running; last log lines:"
+    while IFS= read -r line; do
+        log_error "    ${line}"
+    done < <(docker logs --tail 15 "$cid" 2>&1)
+}
+
 # Wait for the whole stack, reporting each component as it comes up.
 # Returns non-zero if any critical component fails.
 supabase_health_check() {
@@ -513,6 +527,7 @@ supabase_health_check() {
         log_ok "PostgreSQL available"
     else
         log_error "PostgreSQL failed health check"
+        _log_container_crash "$(supabase_db_service)"
         failed=1
     fi
 
@@ -520,6 +535,7 @@ supabase_health_check() {
         log_ok "Supabase API available"
     else
         log_error "Supabase API failed health check"
+        _log_container_crash "$(supabase_gateway_service)"
         failed=1
     fi
 
@@ -527,6 +543,7 @@ supabase_health_check() {
         log_ok "Auth available"
     else
         log_error "Auth failed health check"
+        _log_container_crash "auth"
         failed=1
     fi
 
