@@ -132,7 +132,30 @@ saved in `installer.env` and passed to the frontend container as
 **The application must send the CAPTCHA token**, or every password sign-in is
 rejected once this is on. The installer checks whether the application
 checkout reads `TURNSTILE_SITE_KEY`, and asks for explicit confirmation if
-it doesn't. Browsers need to reach `challenges.cloudflare.com`.
+it doesn't.
+
+Both sides need to reach `challenges.cloudflare.com`. The browser loads the
+widget from it. The **`auth` container** checks every sign-in token there,
+sending the token and the secret to Cloudflare's `siteverify` endpoint, so a
+server without outbound HTTPS can't use this feature.
+
+**Health check before enabling.** The installer sends the secret and a dummy
+token to `siteverify`. It does this from the `auth` container when Supabase is
+running, and from the host before then. Cloudflare's answer tells the cases
+apart:
+
+| Answer | Meaning | Result |
+|---|---|---|
+| `invalid-input-response` | The secret is valid; only the dummy token was rejected | enabled |
+| `invalid-input-secret` | Wrong or truncated secret | **not** enabled |
+| `result_with_testing_key` | One of Cloudflare's public test secrets (no protection) | **not** enabled |
+| no answer, or a non-Cloudflare page | No route to Cloudflare | **not** enabled |
+
+The secret never appears on a command line: `curl` reads it from stdin, and
+`docker exec` takes it from the environment. `sentinel-ops status` and
+`auth status` repeat the check. If an enabled CAPTCHA starts failing (for
+example, the key was rotated in Cloudflare or egress was closed), they warn
+that password sign-in is being refused.
 
 gotrue applies the CAPTCHA to every password grant, not only browser ones, so
 check any server-side caller that signs in with a password before you enable

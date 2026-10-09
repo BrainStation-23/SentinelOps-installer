@@ -147,6 +147,46 @@ check "status warns when an enabled check cannot reach the API" "1" \
     "$(hardening_status 2>&1 | grep -c 'passwords are NOT being checked')"
 unset -f curl
 
+# --- Turnstile health check gates enabling ----------------------------------
+# Bodies are real siteverify answers (dummy token) for each kind of secret.
+TS_OK='{"error-codes":["invalid-input-response"],"success":false,"messages":[]}'
+TS_BAD='{"error-codes":["invalid-input-secret"],"success":false,"messages":[]}'
+TS_TEST='{"error-codes":["invalid-input-response"],"success":false,"messages":[],"metadata":{"result_with_testing_key":true}}'
+check "classify: valid secret"  "ok"          "$(_turnstile_classify "$TS_OK")"
+check "classify: bad secret"    "bad-secret"  "$(_turnstile_classify "$TS_BAD")"
+check "classify: test secret"   "test-key"    "$(_turnstile_classify "$TS_TEST")"
+check "classify: no answer"     "unreachable" "$(_turnstile_classify "")"
+check "classify: proxy page"    "unreachable" "$(_turnstile_classify '<html>blocked</html>')"
+
+TS_BODY=""
+# The probe runs in a command substitution (a subshell), so record to files.
+curl() { printf "%s" "$*" >"${T}/curl.args"; cat >"${T}/curl.stdin"; printf "%s" "$TS_BODY"; }
+_hardening_app_supports_captcha() { return 0; }
+
+_enable_captcha_with() {
+    _reset
+    env_set "$ENV" TURNSTILE_SECRET_KEY "0x4AAAAAAArealSecret"
+    TURNSTILE_SITE_KEY="0x4AAAsite"; TS_BODY="$1"
+    hardening_enable_feature captcha >/dev/null 2>&1
+}
+
+_enable_captcha_with "$TS_OK"; rc=$?
+check "valid secret: enable succeeds" "0|true" "${rc}|${AUTH_CAPTCHA_ENABLED}"
+check "secret sent on stdin" "0x4AAAAAAArealSecret" "$(cat "${T}/curl.stdin")"
+check "secret never on the command line" "0" "$(grep -c 'realSecret' "${T}/curl.args")"
+
+_enable_captcha_with "$TS_BAD"; rc=$?
+check "bad secret: refused" "1|false|bad-secret" "${rc}|${AUTH_CAPTCHA_ENABLED}|${TURNSTILE_CHECK_RESULT}"
+_enable_captcha_with "$TS_TEST"; rc=$?
+check "test secret: refused" "1|false|test-key" "${rc}|${AUTH_CAPTCHA_ENABLED}|${TURNSTILE_CHECK_RESULT}"
+_enable_captcha_with ""; rc=$?
+check "unreachable: refused" "1|false|unreachable" "${rc}|${AUTH_CAPTCHA_ENABLED}|${TURNSTILE_CHECK_RESULT}"
+
+AUTH_CAPTCHA_ENABLED="true"; TS_BODY=""
+check "status warns when enabled CAPTCHA cannot verify" "1" \
+    "$(hardening_status 2>&1 | grep -c 'password sign-in is being refused')"
+unset -f curl _hardening_app_supports_captcha
+
 # --- feature names -------------------------------------------------------------
 check "feature list" "signup|password-policy|hibp|captcha|rate-limit" "$(_hardening_feature_list)"
 hardening_feature_known bogus; check "unknown feature rejected" "1" "$?"
