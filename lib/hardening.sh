@@ -135,20 +135,100 @@ _hibp_probe_container() {
     _hibp_response_ok "$body"
 }
 
-# 0 when the API answered correctly from the auth container (when it is
-# running) or this host (before Supabase is up). Sets HIBP_CHECK_FROM.
-hardening_hibp_check() {
+# The running auth container's id, when it can run a probe (has wget);
+# nothing otherwise - before Supabase is up, or outside an installation.
+_hardening_auth_cid() {
     local cid=""
     if declare -F supabase_container_id >/dev/null && supabase_installed 2>/dev/null; then
         cid="$(supabase_container_id auth 2>/dev/null || true)"
     fi
     if [[ -n "$cid" ]] && docker exec "$cid" sh -c 'command -v wget' >/dev/null 2>&1; then
+        printf '%s' "$cid"
+    fi
+}
+
+# 0 when the API answered correctly from the auth container (when it is
+# running) or this host (before Supabase is up). Sets HIBP_CHECK_FROM.
+hardening_hibp_check() {
+    local cid
+    cid="$(_hardening_auth_cid)"
+    if [[ -n "$cid" ]]; then
         HIBP_CHECK_FROM="auth container"
         _hibp_probe_container "$cid"
         return
     fi
     HIBP_CHECK_FROM="this host"
     _hibp_probe_host
+}
+
+# ---------------------------------------------------------------------------
+# Turnstile health check
+#
+# gotrue verifies every CAPTCHA token server-side, by posting it with the
+# secret to Cloudflare's siteverify endpoint. If the auth container cannot
+# reach that endpoint, or the secret is wrong, every password sign-in fails -
+# so CAPTCHA is only enabled after a real siteverify round trip.
+#
+# A dummy token with a valid secret is answered with "invalid-input-response"
+# (token rejected, secret accepted); a bad secret with "invalid-input-secret".
+# Cloudflare's published test secrets answer with result_with_testing_key.
+# ---------------------------------------------------------------------------
+
+TURNSTILE_VERIFY_URL="https://challenges.cloudflare.com/turnstile/v0/siteverify"
+_TURNSTILE_PROBE_TOKEN="sentinel-ops-healthcheck"
+# Where the last hardening_turnstile_check ran, and what it found.
+TURNSTILE_CHECK_FROM=""
+TURNSTILE_CHECK_RESULT=""
+
+# Classify a siteverify response body:
+#   ok | bad-secret | test-key | unreachable
+_turnstile_classify() {
+    local body="$1"
+    if [[ "$body" == *'"result_with_testing_key":true'* ]]; then
+        printf 'test-key'
+    elif [[ "$body" == *'"invalid-input-secret"'* ]]; then
+        printf 'bad-secret'
+    elif [[ "$body" == *'"invalid-input-response"'* ]]; then
+        printf 'ok'
+    else
+        printf 'unreachable'
+    fi
+}
+
+# The secret never goes on a command line (visible in ps): curl reads it from
+# stdin, and docker exec takes it from the environment by name.
+_turnstile_probe_host() {
+    local secret="$1"
+    printf '%s' "$secret" | curl -sS --max-time 10 -X POST \
+        --data-urlencode "secret@-" -d "response=${_TURNSTILE_PROBE_TOKEN}" \
+        "$TURNSTILE_VERIFY_URL" 2>/dev/null || true
+}
+
+_turnstile_probe_container() {
+    local cid="$1" secret="$2"
+    # Turnstile secrets are URL-safe (0x + [A-Za-z0-9_-]), so no encoding is
+    # needed for busybox wget's --post-data.
+    SO_TS_SECRET="$secret" docker exec -e SO_TS_SECRET "$cid" sh -c \
+        "wget -qO- -T 10 --post-data \"secret=\${SO_TS_SECRET}&response=${_TURNSTILE_PROBE_TOKEN}\" '${TURNSTILE_VERIFY_URL}'" \
+        2>/dev/null || true
+}
+
+# 0 only for a real, valid secret reachable from where gotrue runs. Sets
+# TURNSTILE_CHECK_FROM and TURNSTILE_CHECK_RESULT (see _turnstile_classify).
+# Note: siteverify answers HTTP 200 even for errors, so wget/curl succeed on
+# every real answer and only the body decides.
+hardening_turnstile_check() {
+    local secret="$1" cid body
+    cid="$(_hardening_auth_cid)"
+    if [[ -n "$cid" ]]; then
+        TURNSTILE_CHECK_FROM="auth container"
+        body="$(_turnstile_probe_container "$cid" "$secret")"
+    else
+        TURNSTILE_CHECK_FROM="this host"
+        body="$(_turnstile_probe_host "$secret")"
+    fi
+    TURNSTILE_CHECK_RESULT="$(_turnstile_classify "$body")"
+    [[ "$TURNSTILE_CHECK_RESULT" == "ok" ]]
 }
 
 # Does the application checkout read the Turnstile site key yet? Enabling
@@ -225,6 +305,22 @@ hardening_enable_feature() {
                 log_warn "Site key or secret left blank; CAPTCHA will not be enabled."
                 return 1
             fi
+            log_info "Verifying the secret with Cloudflare..."
+            if ! hardening_turnstile_check "$TURNSTILE_SECRET_KEY"; then
+                case "$TURNSTILE_CHECK_RESULT" in
+                    bad-secret)
+                        log_error "Cloudflare rejected the Turnstile secret key - check it was copied in full." ;;
+                    test-key)
+                        log_error "That is one of Cloudflare's published test secrets, which provide no protection." ;;
+                    *)
+                        log_error "challenges.cloudflare.com did not answer from ${TURNSTILE_CHECK_FROM}."
+                        log_error "gotrue verifies every sign-in there, so allow outbound HTTPS to it first." ;;
+                esac
+                log_error "CAPTCHA was NOT enabled. Retry with: sudo sentinel-ops auth enable captcha"
+                TURNSTILE_SECRET_KEY=""
+                return 1
+            fi
+            log_ok "Turnstile secret verified from ${TURNSTILE_CHECK_FROM}"
             AUTH_CAPTCHA_ENABLED="true"
             ;;
         rate-limit)
@@ -446,6 +542,10 @@ hardening_status() {
             # Enabled earlier, unreachable now: fail-open means passwords go
             # unchecked, fail-closed means nobody can set one.
             status_line "$label" "warn" "API unreachable from ${HIBP_CHECK_FROM} - $([[ "$AUTH_HIBP_FAIL_CLOSED" == "true" ]] && printf 'password changes are being refused' || printf 'passwords are NOT being checked')"
+        elif [[ "$f" == "captcha" ]] && hardening_feature_enabled captcha \
+                && ! hardening_turnstile_check "$(env_get "${SUPABASE_DIR}/.env" TURNSTILE_SECRET_KEY 2>/dev/null || true)"; then
+            # Enabled earlier, failing now: every password sign-in is refused.
+            status_line "$label" "warn" "verification failing (${TURNSTILE_CHECK_RESULT} from ${TURNSTILE_CHECK_FROM}) - password sign-in is being refused"
         elif hardening_feature_enabled "$f"; then
             status_line "$label" "ok" "$detail"
         else
