@@ -47,6 +47,17 @@ ENABLE_LOGFLARE="true"
 ENABLE_AZURE_AD="false"
 AZURE_CLIENT_ID=""
 AZURE_TENANT_ID=""
+# Optional Supabase Auth hardening, all off by default. Non-secret only - the
+# Turnstile secret lives solely in supabase/.env. See lib/hardening.sh.
+AUTH_DISABLE_SIGNUP="false"
+AUTH_PASSWORD_POLICY="false"
+AUTH_PASSWORD_MIN_LENGTH="12"
+AUTH_HIBP_ENABLED="false"
+AUTH_HIBP_FAIL_CLOSED="false"
+AUTH_CAPTCHA_ENABLED="false"
+TURNSTILE_SITE_KEY=""
+AUTH_RATE_LIMIT_HEADER=""
+AUTH_RATE_LIMIT_TOKEN=""
 # How many local backup cycles to keep (lib/backup.sh:backup_prune_local).
 BACKUP_RETENTION_COUNT="10"
 # Scheduled backups (lib/commands/schedule.sh). Off by default; see
@@ -106,6 +117,9 @@ config_load() {
                API_EXTERNAL_URL SITE_URL APP_PORT APP_BIND APP_IMAGE_NAME \
                APP_CONTAINER_NAME ENABLE_LOGFLARE \
                ENABLE_AZURE_AD AZURE_CLIENT_ID AZURE_TENANT_ID \
+               AUTH_DISABLE_SIGNUP AUTH_PASSWORD_POLICY AUTH_PASSWORD_MIN_LENGTH \
+               AUTH_HIBP_ENABLED AUTH_HIBP_FAIL_CLOSED AUTH_CAPTCHA_ENABLED \
+               TURNSTILE_SITE_KEY AUTH_RATE_LIMIT_HEADER AUTH_RATE_LIMIT_TOKEN \
                BACKUP_RETENTION_COUNT \
                BACKUP_SCHEDULE_ENABLED BACKUP_SCHEDULE_CALENDAR BACKUP_SCHEDULE_CHECK_DAY \
                RESTIC_SECONDARY_ENABLED RESTIC_SECONDARY_REPOSITORY \
@@ -155,6 +169,17 @@ config_save() {
         printf 'ENABLE_AZURE_AD=%s\n'       "$ENABLE_AZURE_AD"
         printf 'AZURE_CLIENT_ID=%s\n'       "$AZURE_CLIENT_ID"
         printf 'AZURE_TENANT_ID=%s\n\n'     "$AZURE_TENANT_ID"
+        printf '# Auth hardening - see docs/AUTH-HARDENING.md. The Turnstile secret is\n'
+        printf '# never written here; it lives only in supabase/.env.\n'
+        printf 'AUTH_DISABLE_SIGNUP=%s\n'      "$AUTH_DISABLE_SIGNUP"
+        printf 'AUTH_PASSWORD_POLICY=%s\n'     "$AUTH_PASSWORD_POLICY"
+        printf 'AUTH_PASSWORD_MIN_LENGTH=%s\n' "$AUTH_PASSWORD_MIN_LENGTH"
+        printf 'AUTH_HIBP_ENABLED=%s\n'        "$AUTH_HIBP_ENABLED"
+        printf 'AUTH_HIBP_FAIL_CLOSED=%s\n'    "$AUTH_HIBP_FAIL_CLOSED"
+        printf 'AUTH_CAPTCHA_ENABLED=%s\n'     "$AUTH_CAPTCHA_ENABLED"
+        printf 'TURNSTILE_SITE_KEY=%s\n'       "$TURNSTILE_SITE_KEY"
+        printf 'AUTH_RATE_LIMIT_HEADER=%s\n'   "$AUTH_RATE_LIMIT_HEADER"
+        printf 'AUTH_RATE_LIMIT_TOKEN=%s\n\n'  "$AUTH_RATE_LIMIT_TOKEN"
         printf '# Backups - see docs/BACKUPS.md\n'
         printf 'BACKUP_RETENTION_COUNT=%s\n' "$BACKUP_RETENTION_COUNT"
         printf 'BACKUP_SCHEDULE_ENABLED=%s\n'  "$BACKUP_SCHEDULE_ENABLED"

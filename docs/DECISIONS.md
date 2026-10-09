@@ -605,3 +605,38 @@ repository-level integrity check already catch: corruption, truncation, a
 silently-failed upload. `docs/BACKUPS.md` states this boundary explicitly and
 recommends operators test a real restore themselves periodically, so the
 gap is a stated scope decision, not something to rediscover mid-incident.
+
+## 28. Auth hardening ships as a generated Compose overlay, not a compose patch
+
+The optional gotrue settings in `lib/hardening.sh` (password policy, breached
+passwords, CAPTCHA, rate-limit header) have no wiring at all in upstream's
+`docker-compose.yml`, not even commented out. Azure AD
+(`azure_patch_compose`, see `docs/AZURE-AD.md`) can be enabled by
+uncommenting lines that upstream already ships. These settings have no such anchor, so patching them in would
+mean inserting new lines into a vendored file, and `update supabase`
+overwrites that file every time.
+
+Instead the installer writes `supabase/docker-compose.sentinel-auth.yml`,
+which adds only `services.auth.environment` keys. It is listed in
+`COMPOSE_FILE` in `supabase/.env`, the mechanism upstream's own `run.sh config
+add` uses for its optional overlays. `COMPOSE_FILE` is edited directly rather
+than through `run.sh`, so the step works (and can be unit-tested) when
+`run.sh` is absent. The list format is identical, so the two coexist with
+`docker-compose.logs.yml`. Upstream never ships a file by this name, so
+`_sync_tree` leaves it alone. It is regenerated on every install,
+`update supabase`, `repair apply` and `sentinel-ops auth` run anyway.
+
+Values are written into the overlay as literals: YAML single-quoted, with
+`$` doubled for Compose. Values are not interpolated from `.env`, because the
+password symbol set contains every character `.env` and Compose
+interpolation handle badly. The one secret, the Turnstile key, is the
+exception: it stays in `supabase/.env` and the overlay references it with
+`${TURNSTILE_SECRET_KEY:?...}`. If the secret is missing, Compose then
+refuses to start with a clear message, rather than gotrue crash-looping.
+
+Sign-up is the exception in the other direction. Upstream already wires
+`GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP}`, so it is a plain `.env` setting
+and needs no overlay.
+
+Every setting defaults to off. An install that declines every prompt gets a
+byte-identical `supabase/.env` and no overlay file.

@@ -23,6 +23,7 @@ _install_supabase_files() {
         azure_apply_config || return 1
         azure_patch_compose || log_warn "Azure AD sign-in was configured but could not be wired into the auth container."
     fi
+    hardening_apply_config || return 1
     return 0
 }
 
@@ -107,6 +108,7 @@ _install_collect_config() {
 
     logflare_prompt_config
     azure_prompt_config
+    hardening_prompt_config
 
     config_save
 }
@@ -145,6 +147,9 @@ _install_summary() {
         status_line "Status" "ok" "Enabled"
         status_line "Redirect URI" "" "$(_azure_redirect_uri)"
     fi
+
+    section "Auth hardening"
+    hardening_status
 
     printf '\n'
     # Credentials are deliberately not printed here: installation output is

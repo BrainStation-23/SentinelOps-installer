@@ -45,6 +45,16 @@ _repair_apply() {
         fi
     fi
 
+    # The same drift for auth hardening: a reset COMPOSE_FILE silently drops the
+    # overlay, and a hand-edited installer.env needs applying.
+    local before_hardening
+    before_hardening="$(_hardening_fingerprint)"
+    hardening_apply_config >/dev/null || log_warn "The auth hardening configuration could not be re-applied."
+    if [[ "$before_hardening" != "$(_hardening_fingerprint)" ]]; then
+        changed="true"
+        log_ok "Re-applied the auth hardening configuration"
+    fi
+
     if [[ "$changed" != "true" ]]; then
         log_info "Nothing to restart."
         return 0

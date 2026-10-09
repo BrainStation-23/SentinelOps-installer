@@ -148,6 +148,7 @@ switches over with a config change and a restart — no reinstall.
 | `sentinel-ops network [status\|enable\|disable]` | Expose (or restrict) the frontend and Supabase API directly on the LAN |
 | `sentinel-ops domain [status\|set <hostname>]` | Point the stack at a real domain (config + restart, no reinstall) |
 | `sentinel-ops azure [status\|enable\|disable]` | Configure Azure AD (Microsoft Entra ID) sign-in |
+| `sentinel-ops auth [status\|enable\|disable] <feature>` | Optional Supabase Auth hardening - see [AUTH-HARDENING.md](docs/AUTH-HARDENING.md) |
 | `sentinel-ops repair [check\|apply]` | Validate `supabase/.env` for known mechanical mistakes and fix them |
 | `sentinel-ops nuke` | **Destroy this installation** so a fresh one can be tested |
 
@@ -371,6 +372,19 @@ after `sentinel-ops update supabase`, which otherwise resets the compose file
 to upstream's commented-out default. Full detail in
 [docs/AZURE-AD.md](docs/AZURE-AD.md).
 
+## Auth hardening
+
+Five optional Supabase Auth settings, **all off by default**:
+admin-created accounts only (`signup`), a strong password policy
+(`password-policy`), rejecting breached passwords (`hibp`), a Cloudflare
+Turnstile CAPTCHA on sign-in (`captcha`), and per-IP rate limiting behind a
+reverse proxy (`rate-limit`). You can turn each one on with an install-time
+prompt or later with `sentinel-ops auth enable <feature>`. They reach gotrue
+through a generated Compose overlay,
+`supabase/docker-compose.sentinel-auth.yml`, which survives
+`update supabase`. Full detail, including the egress and reverse-proxy
+requirements, is in [docs/AUTH-HARDENING.md](docs/AUTH-HARDENING.md).
+
 ## Repairing supabase/.env
 
 `sentinel-ops repair check` scans `supabase/.env` for the class of mistake
@@ -448,5 +462,6 @@ tests for the helpers that the deployment logic depends on.
 - [docs/REVERSE-PROXY.md](docs/REVERSE-PROXY.md) — upstreams and example proxy configs
 - [docs/LOGFLARE.md](docs/LOGFLARE.md) — analytics setup, backends and variables
 - [docs/AZURE-AD.md](docs/AZURE-AD.md) — Azure AD sign-in setup and variables
+- [docs/AUTH-HARDENING.md](docs/AUTH-HARDENING.md) — optional sign-up, password, CAPTCHA and rate-limit hardening
 - [docs/DECISIONS.md](docs/DECISIONS.md) — why the implementation deviates from
   the original plan where it does

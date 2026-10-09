@@ -171,6 +171,11 @@ _status_azure() {
     return 0
 }
 
+_status_auth() {
+    section "Auth hardening"
+    hardening_status
+}
+
 _status_meta() {
     section "History"
     status_line "Installed" "" "$(state_get INSTALLED_AT unknown)"
@@ -201,6 +206,7 @@ cmd_status() {
     _status_supabase
     _status_logflare
     _status_azure
+    _status_auth
     _status_app
     _status_backups
     _status_urls

@@ -130,6 +130,9 @@ cmd_update_supabase() {
         azure_apply_config  || log_warn "Could not re-apply the Azure AD configuration."
         azure_patch_compose || log_warn "Could not re-wire Azure AD into the refreshed docker-compose.yml."
     fi
+    # An upstream .env.example change can reset COMPOSE_FILE, which would
+    # silently drop the auth hardening overlay - re-register it.
+    hardening_apply_config || log_warn "Could not re-apply the auth hardening configuration."
     phase_end
 
     phase_begin "Pulling images"
