@@ -228,6 +228,11 @@ frontend_run_container() {
         -e SUPABASE_SERVICE_ROLE_KEY
         -p "${bind}:${host_port}:${APP_PORT}"
     )
+    # The browser needs the Turnstile site key to render the CAPTCHA, served
+    # through /runtime-config.js like the Supabase URL. It is public by design.
+    if [[ "$AUTH_CAPTCHA_ENABLED" == "true" && -n "$TURNSTILE_SITE_KEY" ]]; then
+        args+=(-e "TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY}")
+    fi
     if [[ "$attached" == "true" ]]; then
         args+=(--network "$network")
     fi

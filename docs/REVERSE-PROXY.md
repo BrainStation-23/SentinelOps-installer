@@ -137,6 +137,38 @@ server {
 }
 ```
 
+#### Sign-in rate limiting (optional)
+
+Pairs with `sentinel-ops auth enable rate-limit` (see
+[AUTH-HARDENING.md](AUTH-HARDENING.md)). Add the client-IP header to the
+Supabase server block above. It must be `proxy_set_header`, which
+**overwrites** whatever the client sent; an appended header can be spoofed.
+A second, coarser per-IP limit on the password-grant endpoint at the edge
+costs nothing:
+
+```nginx
+# http {} context
+limit_req_zone $binary_remote_addr zone=auth_token:10m rate=10r/m;
+
+# inside the supabase.sentinelops.com server {} block
+    proxy_set_header X-Sentinel-Client-IP $remote_addr;   # in location / too
+
+    location = /auth/v1/token {
+        limit_req zone=auth_token burst=5 nodelay;
+        limit_req_status 429;
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host                 $host;
+        proxy_set_header X-Real-IP            $remote_addr;
+        proxy_set_header X-Forwarded-For      $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto    $scheme;
+        proxy_set_header X-Sentinel-Client-IP $remote_addr;
+    }
+```
+
+`/auth/v1/token` also serves session refreshes, so leave enough headroom for
+several users behind one NAT. This adds a limit at the proxy. It does not
+replace gotrue's own limit, which keys on the header.
+
 ### Caddy
 
 ```caddyfile

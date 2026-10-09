@@ -13,6 +13,7 @@
 #   sentinel-ops logs [target]
 #   sentinel-ops remote [status|secondary|offsite]   3-2-1 replication targets
 #   sentinel-ops schedule [status|enable|disable|run-now]
+#   sentinel-ops auth [status|enable|disable] [feature]   auth hardening
 #   sentinel-ops repair [check|apply]   validate/fix supabase/.env
 #   sentinel-ops nuke               destroy this installation entirely
 #
@@ -39,11 +40,11 @@ SO_ASSETS_DIR="${SO_ROOT}/assets"
 # alongside the installer.
 SO_SOURCE_DIR="$SO_ROOT"
 
-for _lib in common os prereqs config supabase logflare azure firewall repo frontend database backup restic selfinstall repair menu; do
+for _lib in common os prereqs config supabase logflare azure hardening firewall repo frontend database backup restic selfinstall repair menu; do
     # shellcheck source=/dev/null
     source "${SO_LIB_DIR}/${_lib}.sh"
 done
-for _lib in install update status credentials maintenance backup remote schedule nuke network azure domain repair; do
+for _lib in install update status credentials maintenance backup remote schedule nuke network azure auth domain repair; do
     # shellcheck source=/dev/null
     source "${SO_LIB_DIR}/commands/${_lib}.sh"
 done
@@ -88,6 +89,10 @@ Commands:
                           no reinstall) - see docs/REVERSE-PROXY.md
   azure [status|enable|disable]
                           Configure Azure AD (Microsoft Entra ID) sign-in
+  auth [status|enable <feature>|disable <feature>]
+                          Optional Supabase Auth hardening (signup,
+                          password-policy, hibp, captcha, rate-limit) - see
+                          docs/AUTH-HARDENING.md
   repair [check|apply]    Validate supabase/.env for known mechanical
                           mistakes (CRLF, stray whitespace, duplicate keys, a
                           trailing slash on a URL); apply fixes and restart
@@ -151,6 +156,7 @@ main() {
         network)     cmd_network "${rest[@]:-status}" ;;
         domain)      cmd_domain "${rest[@]:-status}" ;;
         azure)       cmd_azure "${rest[@]:-status}" ;;
+        auth)        cmd_auth "${rest[@]:-status}" ;;
         repair)      cmd_repair "${rest[@]:-check}" ;;
         nuke)        cmd_nuke "${rest[@]:-}" ;;
         version|--version) printf 'sentinel-ops %s\n' "$SO_INSTALLER_VERSION" ;;
