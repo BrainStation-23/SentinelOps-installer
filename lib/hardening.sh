@@ -92,6 +92,65 @@ hardening_feature_enabled() {
     esac
 }
 
+# ---------------------------------------------------------------------------
+# Pwned Passwords health check
+#
+# Enabling the breached-password check on a host that cannot reach the API
+# silently does nothing (fail-open) or blocks every password change
+# (fail-closed), so it is only enabled after a real round trip succeeds.
+#
+# The probe asks for the range of SHA-1("password") - the most breached
+# password there is - and requires its suffix in the answer. A bare HTTP 200
+# is not enough: a captive portal or an intercepting proxy returns one too.
+# ---------------------------------------------------------------------------
+
+HIBP_API_URL="https://api.pwnedpasswords.com/range/"
+_HIBP_PROBE_PREFIX="5BAA6"
+_HIBP_PROBE_SUFFIX="1E4C9B93F3F0682250B6CF8331B7EE68FD8"
+# Where the last hardening_hibp_check ran: "auth container" or "this host".
+HIBP_CHECK_FROM=""
+
+# The body is captured before it is searched: piping straight into grep -q
+# would let grep exit at the first match, SIGPIPE the downloader, and - under
+# the CLI's pipefail - turn a success into a failure.
+_hibp_response_ok() {
+    local body="$1"
+    grep -qi "^${_HIBP_PROBE_SUFFIX}:" <<<"${body//$'\r'/}"
+}
+
+_hibp_probe_host() {
+    local body
+    body="$(curl -fsS --max-time 10 -A "sentinel-ops-installer" \
+        "${HIBP_API_URL}${_HIBP_PROBE_PREFIX}" 2>/dev/null)" || return 1
+    _hibp_response_ok "$body"
+}
+
+# gotrue is what makes the real request, so its container's egress is what
+# matters (a host proxy or a Docker network policy can differ from the host's
+# own). Its image ships wget for its healthcheck.
+_hibp_probe_container() {
+    local body
+    body="$(docker exec "$1" wget -qO- -T 10 -U "sentinel-ops-installer" \
+        "${HIBP_API_URL}${_HIBP_PROBE_PREFIX}" 2>/dev/null)" || return 1
+    _hibp_response_ok "$body"
+}
+
+# 0 when the API answered correctly from the auth container (when it is
+# running) or this host (before Supabase is up). Sets HIBP_CHECK_FROM.
+hardening_hibp_check() {
+    local cid=""
+    if declare -F supabase_container_id >/dev/null && supabase_installed 2>/dev/null; then
+        cid="$(supabase_container_id auth 2>/dev/null || true)"
+    fi
+    if [[ -n "$cid" ]] && docker exec "$cid" sh -c 'command -v wget' >/dev/null 2>&1; then
+        HIBP_CHECK_FROM="auth container"
+        _hibp_probe_container "$cid"
+        return
+    fi
+    HIBP_CHECK_FROM="this host"
+    _hibp_probe_host
+}
+
 # Does the application checkout read the Turnstile site key yet? Enabling
 # CAPTCHA before the login form sends a token locks every password user out.
 # 0 = yes, 1 = no, 2 = cannot tell (no checkout yet).
@@ -126,6 +185,16 @@ hardening_enable_feature() {
             ;;
         hibp)
             log_info "Each new password's hash prefix is checked against api.pwnedpasswords.com."
+            log_info "Checking that the API is reachable..."
+            if ! hardening_hibp_check; then
+                log_error "api.pwnedpasswords.com did not answer correctly from ${HIBP_CHECK_FROM}."
+                log_error "Breached-password checking was NOT enabled. Allow outbound HTTPS to"
+                log_error "api.pwnedpasswords.com (and any proxy in between), then retry with:"
+                log_error "  sudo sentinel-ops auth enable hibp"
+                AUTH_HIBP_ENABLED="false"
+                return 1
+            fi
+            log_ok "Pwned Passwords API reachable from ${HIBP_CHECK_FROM}"
             if confirm "Reject the password when that API cannot be reached (fail closed)?" n; then
                 AUTH_HIBP_FAIL_CLOSED="true"
             else
@@ -211,7 +280,7 @@ hardening_prompt_config() {
         AUTH_PASSWORD_POLICY="false"
     fi
     if confirm "Reject passwords found in known data breaches (needs outbound HTTPS)?" n; then
-        hardening_enable_feature hibp
+        hardening_enable_feature hibp || AUTH_HIBP_ENABLED="false"
     else
         AUTH_HIBP_ENABLED="false"
     fi
@@ -373,7 +442,11 @@ hardening_status() {
             captcha)         label="CAPTCHA";           detail="Turnstile" ;;
             rate-limit)      label="Per-IP rate limit"; detail="keyed on ${AUTH_RATE_LIMIT_HEADER}" ;;
         esac
-        if hardening_feature_enabled "$f"; then
+        if [[ "$f" == "hibp" ]] && hardening_feature_enabled hibp && ! hardening_hibp_check; then
+            # Enabled earlier, unreachable now: fail-open means passwords go
+            # unchecked, fail-closed means nobody can set one.
+            status_line "$label" "warn" "API unreachable from ${HIBP_CHECK_FROM} - $([[ "$AUTH_HIBP_FAIL_CLOSED" == "true" ]] && printf 'password changes are being refused' || printf 'passwords are NOT being checked')"
+        elif hardening_feature_enabled "$f"; then
             status_line "$label" "ok" "$detail"
         else
             status_line "$label" "" "off"

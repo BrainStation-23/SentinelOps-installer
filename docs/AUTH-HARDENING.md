@@ -101,6 +101,18 @@ k-anonymity: only the first 5 characters of the SHA-1 hash leave the host.
 This needs outbound HTTPS from the auth container to
 `api.pwnedpasswords.com`.
 
+No API key or account is needed; the range API is free.
+
+**Health check before enabling.** `auth enable hibp`, and the install-time
+prompt, first make a real request to the API. They look up the hash range for
+`password` and require its known hash in the answer, so a bare HTTP 200 from a
+captive portal or an intercepting proxy doesn't count. The request runs from
+the `auth` container when Supabase is running, because that container makes
+the real requests. Before Supabase is up, it runs from the host. If the check
+fails, the feature is **not enabled** and the installer says which egress to
+open. `sentinel-ops status` and `auth status` repeat the check, and show a
+warning if an enabled check can no longer reach the API.
+
 By default it **fails open**: if that API can't be reached, the password is
 accepted. On an air-gapped host, choose fail-closed only if you accept that
 nobody can set a password while the API is unreachable.

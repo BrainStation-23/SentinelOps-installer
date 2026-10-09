@@ -118,6 +118,35 @@ AUTH_RATE_LIMIT_TOKEN="lots"
 hardening_apply_config >/dev/null 2>&1
 check "non-numeric token limit ignored" "0" "$(grep -c 'GOTRUE_RATE_LIMIT_TOKEN_REFRESH' "$OVERLAY")"
 
+# --- HIBP health check gates enabling ---------------------------------------
+# curl is stubbed: no network in unit tests. Without Supabase installed the
+# check runs from the host.
+HIBP_BODY=""; HIBP_CURL_RC=0
+curl() { printf '%s' "$HIBP_BODY"; return "$HIBP_CURL_RC"; }
+
+_reset
+HIBP_BODY=$'0018A45C4D1DEF81644B54AB7F969B88D65:10\r\n1E4C9B93F3F0682250B6CF8331B7EE68FD8:10434004\r\nFFFF:1\r\n'
+hardening_enable_feature hibp >/dev/null 2>&1; rc=$?
+check "reachable API (CRLF body): enable succeeds" "0|true" "${rc}|${AUTH_HIBP_ENABLED}"
+check "checked from the host when Supabase is absent" "this host" "$HIBP_CHECK_FROM"
+check "fail-open chosen by default" "false" "$AUTH_HIBP_FAIL_CLOSED"
+
+_reset
+HIBP_BODY='<html>Please log in to the guest network</html>'
+hardening_enable_feature hibp >/dev/null 2>&1; rc=$?
+check "HTTP 200 without the probe hash (captive portal): refused" "1|false" "${rc}|${AUTH_HIBP_ENABLED}"
+
+_reset
+HIBP_BODY=""; HIBP_CURL_RC=7
+hardening_enable_feature hibp >/dev/null 2>&1; rc=$?
+check "unreachable API: refused" "1|false" "${rc}|${AUTH_HIBP_ENABLED}"
+
+# Enabled earlier but unreachable now: status must say so, not report "ok".
+AUTH_HIBP_ENABLED="true"
+check "status warns when an enabled check cannot reach the API" "1" \
+    "$(hardening_status 2>&1 | grep -c 'passwords are NOT being checked')"
+unset -f curl
+
 # --- feature names -------------------------------------------------------------
 check "feature list" "signup|password-policy|hibp|captcha|rate-limit" "$(_hardening_feature_list)"
 hardening_feature_known bogus; check "unknown feature rejected" "1" "$?"
