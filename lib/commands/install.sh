@@ -41,6 +41,20 @@ _install_supabase_start() {
     return 0
 }
 
+# Auth hardening is applied in _install_supabase_files so a fresh stack starts
+# with it, but that phase is skipped on a re-run - which is exactly when an
+# operator answering the prompts on an existing installation expects them to
+# take effect. Re-apply on every run; recreate auth only if something changed.
+_install_auth_hardening() {
+    local before
+    before="$(_hardening_fingerprint)"
+    hardening_apply_config || return 1
+    if [[ "$before" != "$(_hardening_fingerprint)" ]] && supabase_service_running auth; then
+        _auth_restart "" || return 1
+    fi
+    return 0
+}
+
 _install_network() {
     firewall_ensure_active
     network_apply_firewall
@@ -193,6 +207,10 @@ cmd_install() {
 
     phase_once supabase_files  "Supabase deployment files"   _install_supabase_files  || die "Supabase setup failed."
     phase_once supabase_start  "Starting Supabase"           _install_supabase_start  || die "Supabase did not become healthy."
+
+    phase_begin "Auth hardening"
+    _install_auth_hardening || die "Could not apply the auth hardening configuration."
+    phase_end
 
     phase_begin "Network exposure"
     _install_network || log_warn "Could not apply firewall rules; open the ports manually if needed."
