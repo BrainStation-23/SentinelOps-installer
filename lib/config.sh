@@ -80,6 +80,14 @@ RESTIC_OFFSITE_REPOSITORY=""
 RESTIC_OFFSITE_KEEP_DAILY="7"
 RESTIC_OFFSITE_KEEP_WEEKLY="4"
 RESTIC_OFFSITE_KEEP_MONTHLY="6"
+# Unattended application updates (lib/commands/autoupdate.sh). Off by
+# default; see `sentinel-ops auto-update enable`. The calendar is how often the
+# remote branch is *checked* - an update only runs when it has moved.
+AUTO_UPDATE_ENABLED="false"
+AUTO_UPDATE_CALENDAR="hourly"
+# Branch of the installer repository `sentinel-ops self-update` pulls from
+# (lib/selfupdate.sh). SENTINEL_OPS_INSTALLER_BRANCH overrides it per run.
+INSTALLER_BRANCH="main"
 
 # Establish every path from the installation root.
 config_set_paths() {
@@ -125,7 +133,7 @@ config_load() {
                RESTIC_SECONDARY_ENABLED RESTIC_SECONDARY_REPOSITORY \
                RESTIC_SECONDARY_KEEP_DAILY RESTIC_SECONDARY_KEEP_WEEKLY RESTIC_SECONDARY_KEEP_MONTHLY \
                RESTIC_OFFSITE_ENABLED RESTIC_OFFSITE_REPOSITORY \
-               RESTIC_OFFSITE_KEEP_DAILY RESTIC_OFFSITE_KEEP_WEEKLY RESTIC_OFFSITE_KEEP_MONTHLY; do
+               RESTIC_OFFSITE_KEEP_DAILY RESTIC_OFFSITE_KEEP_WEEKLY RESTIC_OFFSITE_KEEP_MONTHLY                AUTO_UPDATE_ENABLED AUTO_UPDATE_CALENDAR INSTALLER_BRANCH; do
         val="$(env_get "$CONFIG_FILE" "$key" || true)"
         [[ -n "$val" ]] && printf -v "$key" '%s' "$val"
     done

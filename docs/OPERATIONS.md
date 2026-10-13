@@ -31,6 +31,67 @@ ready:
 Supabase → migrations → edge functions → frontend image → frontend container
 ```
 
+## Automatic application updates
+
+```bash
+sentinel-ops auto-update enable     # prompts for how often to check (default: hourly)
+sentinel-ops auto-update status     # last check, last result, next check, any held commit
+sentinel-ops auto-update run-now    # check now; update only if the branch has moved
+sentinel-ops auto-update disable
+```
+
+A systemd timer (`sentinel-ops-autoupdate.timer`) checks the configured
+branch. When it points at the commit already deployed, nothing else happens.
+When it has moved, the timer runs exactly `sentinel-ops update app`, with the
+backup, staged deploy and health checks described above. Each day's checks
+are logged to `logs/auto-update-<date>.log`, and the systemd journal has them
+too (`journalctl -u sentinel-ops-autoupdate`).
+
+- **A failed auto-update is not retried** for the same commit. It waits for a
+  newer commit or a manual `sentinel-ops update app`.
+- **`rollback` is respected.** The commit you rolled back from is not
+  redeployed. Auto-update resumes when the branch moves past it.
+- **Only one update runs at a time.** A manual `update`/`rollback` started
+  while an auto-update is running refuses with a message rather than
+  interleaving with it. An auto-update that finds a manual one running skips
+  that cycle.
+- Disabling stops future checks. An update already in progress is left to
+  finish.
+
+Auto-update deploys the application only. Supabase updates and installer
+updates stay manual.
+
+## Updating the installer itself
+
+```bash
+sentinel-ops self-update            # same as: sentinel-ops update installer
+sentinel-ops self-update check      # show what would change, change nothing
+sentinel-ops self-update from /path/to/SentinelOps-installer   # from a local checkout
+```
+
+This replaces the installed copy of this tool (`bin/`, `lib/`, `assets/` under
+the installation directory) with the latest from the installer repository's
+`main` branch. To track another branch, set `INSTALLER_BRANCH` in
+`config/installer.env`, or set `SENTINEL_OPS_INSTALLER_BRANCH` for one run.
+The deployed stack is not touched. Run `sentinel-ops update app` afterwards if
+you also want a new release.
+
+It can run at any time, including while an auto-update is in progress. That
+update finishes on the installer code it started with, and the next check uses
+the new copy. Downloads are checked for completeness and shell syntax before
+anything is replaced.
+
+Installations made before this command existed need one last refresh the old
+way: `sudo ./install.sh` from an up-to-date checkout.
+
+**Putting the previous installer back.** The replaced copy is kept until the
+next self-update:
+
+```bash
+cd /opt/sentinel-ops
+for d in bin lib assets; do sudo rm -rf "$d" && sudo mv ".installer-prev/$d" "$d"; done
+```
+
 ## Updating Supabase
 
 ```bash

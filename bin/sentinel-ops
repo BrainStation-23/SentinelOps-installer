@@ -4,7 +4,9 @@
 #
 #   sentinel-ops                    guided menu
 #   sentinel-ops install            first installation
-#   sentinel-ops update [target]    app (default) | supabase | all
+#   sentinel-ops update [target]    app (default) | supabase | all | installer
+#   sentinel-ops self-update [check|from <path>]   update this tool itself
+#   sentinel-ops auto-update [status|enable|disable|run-now]
 #   sentinel-ops status             what is actually running
 #   sentinel-ops credentials        generated Supabase credentials
 #   sentinel-ops backup [create|list|verify]
@@ -44,7 +46,7 @@ for _lib in common os prereqs config supabase logflare azure hardening firewall 
     # shellcheck source=/dev/null
     source "${SO_LIB_DIR}/${_lib}.sh"
 done
-for _lib in install update status credentials maintenance backup remote schedule nuke network azure auth domain repair; do
+for _lib in install update selfupdate autoupdate status credentials maintenance backup remote schedule nuke network azure auth domain repair; do
     # shellcheck source=/dev/null
     source "${SO_LIB_DIR}/commands/${_lib}.sh"
 done
@@ -67,6 +69,13 @@ Commands:
   update [app]            Update the application (default target)
   update supabase         Update Supabase only
   update all              Update Supabase and then the application
+  self-update [check|from <path>]
+                          Update this installer itself (from GitHub, or a
+                          local checkout); never touches the deployed stack.
+                          Also: update installer
+  auto-update [status|enable|disable|run-now]
+                          Periodically check the application branch and run
+                          `update app` only when it has a new commit
   status                  Show what is currently deployed and healthy
   credentials             Show the generated Supabase credentials
   backup [create|list|verify]
@@ -145,6 +154,8 @@ main() {
         menu)        cmd_menu ;;
         install)     cmd_install ;;
         update)      cmd_update "${rest[@]:-app}" ;;
+        self-update|selfupdate) cmd_self_update "${rest[@]:-apply}" ;;
+        auto-update|autoupdate) cmd_autoupdate "${rest[@]:-status}" ;;
         status)      cmd_status ;;
         credentials|creds) cmd_credentials ;;
         backup)      cmd_backup "${rest[@]:-create}" ;;

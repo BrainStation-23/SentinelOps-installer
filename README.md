@@ -137,6 +137,8 @@ switches over with a config change and a restart — no reinstall.
 | `sentinel-ops update app` | Update the application only *(the common case)* |
 | `sentinel-ops update supabase` | Update Supabase only |
 | `sentinel-ops update all` | Update Supabase, then the application |
+| `sentinel-ops self-update [check\|from <path>]` | Update this installer itself (also `update installer`); the stack is untouched - see [OPERATIONS.md](docs/OPERATIONS.md#updating-the-installer-itself) |
+| `sentinel-ops auto-update [status\|enable\|disable\|run-now]` | Check the application branch on a timer and update **only** when it has a new commit - see [OPERATIONS.md](docs/OPERATIONS.md#automatic-application-updates) |
 | `sentinel-ops status` | Health and version of every component |
 | `sentinel-ops credentials` | Show generated credentials (masked; `--show` to reveal) |
 | `sentinel-ops backup [create\|list\|verify]` | Full-stack backups (database, Storage, functions, config) |
@@ -434,8 +436,17 @@ cd SentinelOps-installer
 sudo ./install.sh
 ```
 
-On an existing server, pulling a newer installer (`git pull`) and re-running
-`sudo ./install.sh` is safe — completed phases are skipped.
+On an existing server, update the installed `sentinel-ops` command in place:
+
+```bash
+sudo sentinel-ops self-update          # latest installer from GitHub
+sudo sentinel-ops self-update check    # show what would change first
+```
+
+This never touches the deployed stack. Installations made before
+`self-update` existed need one last `git pull` and `sudo ./install.sh`, which
+is safe because completed phases are skipped. See
+[docs/OPERATIONS.md](docs/OPERATIONS.md#updating-the-installer-itself).
 
 ---
 

@@ -21,6 +21,7 @@ cmd_rollback() {
     require_root rollback
     installation_exists || die "No installation found at ${INSTALL_DIR}."
     config_load || true
+    update_lock_or_die
     detect_compose >/dev/null 2>&1 || true
     SO_LOG_FILE="${LOG_DIR}/rollback-$(timestamp).log"
 
@@ -48,8 +49,20 @@ cmd_rollback() {
     local current_image
     current_image="$(state_get APP_IMAGE '')"
 
+    local current_commit
+    current_commit="$(state_get APP_COMMIT '')"
+
     if frontend_run_container "$APP_CONTAINER_NAME" "$prev_image" "$APP_PORT" \
         && wait_for 90 3 frontend_check_http "$APP_PORT"; then
+        # Otherwise the next auto-update check sees the branch "ahead" of the
+        # rolled-back deployment and promptly redeploys the release that was
+        # just rolled away from. Hold it until the branch moves past it.
+        if [[ -n "$current_commit" && "$current_commit" != "unknown" ]]; then
+            state_set AUTO_UPDATE_SKIP_COMMIT "$current_commit"
+            state_set AUTO_UPDATE_SKIP_REASON "rolled back"
+            [[ "$AUTO_UPDATE_ENABLED" == "true" ]] && \
+                log_info "Auto-update will not redeploy ${current_commit:0:7}; it resumes once ${APP_BRANCH} moves past it."
+        fi
         state_set APP_IMAGE "$prev_image"
         state_set PREVIOUS_APP_IMAGE "$current_image"
         [[ -n "$prev_commit" ]] && state_set APP_COMMIT "$prev_commit"

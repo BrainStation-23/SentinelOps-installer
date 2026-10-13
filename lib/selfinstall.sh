@@ -79,7 +79,7 @@ warn_if_stale() {
     _installer_differs "$src" "$SO_ROOT" || return 0
 
     log_warn "${src} differs from the installed copy in ${INSTALL_DIR}."
-    log_warn "This command is a copy and does not update itself. To refresh it:"
-    log_warn "  sudo ${src}/install.sh"
+    log_warn "This command is a copy of that checkout. To refresh it from there:"
+    log_warn "  sudo sentinel-ops self-update from ${src}"
     return 0
 }

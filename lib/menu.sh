@@ -23,8 +23,10 @@ _menu_installed() {
     printf ' 12. Azure AD sign-in\n'
     printf ' 13. Auth hardening\n'
     printf ' 14. Repair supabase/.env (validate and auto-fix)\n'
-    printf ' 15. Destroy this installation (nuke)\n'
-    printf ' 16. Exit\n\n'
+    printf ' 15. Update the installer itself\n'
+    printf ' 16. Automatic application updates\n'
+    printf ' 17. Destroy this installation (nuke)\n'
+    printf ' 18. Exit\n\n'
     printf 'Select: '
 }
 
@@ -71,8 +73,12 @@ cmd_menu() {
                 12) cmd_azure           || true ;;
                 13) cmd_auth            || true ;;
                 14) cmd_repair check    || true ;;
-                15) cmd_nuke            || true ;;
-                16|q|quit|exit) return 0 ;;
+                # A subshell, so its own lock is let go when it finishes
+                # rather than when the menu does.
+                15) ( cmd_self_update ) || true ;;
+                16) cmd_autoupdate      || true ;;
+                17) cmd_nuke            || true ;;
+                18|q|quit|exit) return 0 ;;
                 *) log_warn "Invalid selection: ${choice}" ;;
             esac
         else
@@ -84,6 +90,7 @@ cmd_menu() {
                 *) log_warn "Invalid selection: ${choice}" ;;
             esac
         fi
+        update_lock_release
         printf '\nPress Enter to return to the menu...'
         IFS= read -r _ || return 0
         printf '\n'

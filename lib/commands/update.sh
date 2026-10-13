@@ -2,6 +2,54 @@
 # lib/commands/update.sh - application, Supabase and full updates.
 # shellcheck shell=bash
 
+# ---------------------------------------------------------------------------
+# Update lock
+#
+# The auto-update timer and an operator can both reach for the stack at the
+# same moment, and two overlapping deployments would interleave image builds,
+# migrations and container restarts. Everything that changes what is deployed
+# holds this lock.
+#
+# `self-update` deliberately does not take it: replacing the installer's own
+# files never touches the stack, and an auto-update half way through a long
+# image build must not stand between an operator and a fix to the installer.
+# ---------------------------------------------------------------------------
+
+SO_UPDATE_LOCK_FD=""
+
+# Take the lock without waiting; returns 1 when another process holds it.
+# Re-entrant within one process (and its subshells), so `update all` holds it
+# across both halves. Released when the process exits, however it exits.
+update_lock_acquire() {
+    [[ -n "$SO_UPDATE_LOCK_FD" ]] && return 0
+    if ! have_cmd flock; then
+        log_debug "flock unavailable; updates are not serialised"
+        return 0
+    fi
+    mkdir -p "$STATE_DIR"
+    local fd
+    exec {fd}>"${STATE_DIR}/update.lock" || return 1
+    if ! flock -n "$fd"; then
+        exec {fd}>&-
+        return 1
+    fi
+    SO_UPDATE_LOCK_FD="$fd"
+    return 0
+}
+
+# Only the menu needs this: it outlives the update it ran, and would otherwise
+# hold the lock - and starve the auto-update timer - for as long as it is open.
+update_lock_release() {
+    [[ -n "$SO_UPDATE_LOCK_FD" ]] || return 0
+    exec {SO_UPDATE_LOCK_FD}>&-
+    SO_UPDATE_LOCK_FD=""
+}
+
+update_lock_or_die() {
+    update_lock_acquire && return 0
+    die "Another update is already running (possibly the auto-update timer: systemctl status ${SO_AUTOUPDATE_UNIT}.service). Try again when it finishes."
+}
+
 # Shared entry guard: an update only makes sense against a real installation.
 _update_preflight() {
     installation_exists || die "No Sentinel Ops installation found at ${INSTALL_DIR}. Run: sentinel-ops install"
@@ -31,6 +79,7 @@ _update_require_supabase_healthy() {
 cmd_update_app() {
     require_root update app
     _update_preflight
+    update_lock_or_die
     SO_LOG_FILE="${LOG_DIR}/update-app-$(timestamp).log"
 
     banner "Update Sentinel Ops"
@@ -77,6 +126,10 @@ cmd_update_app() {
     state_set APP_COMMIT "$(repo_commit)"
     state_set APP_BRANCH "$APP_BRANCH"
     [[ -n "$before_commit" && "$before_commit" != "unknown" ]] && state_set PREVIOUS_APP_COMMIT "$before_commit"
+    # A successful deployment is the operator's answer to whatever made
+    # auto-update hold back (a failed attempt, a rollback) - stop holding.
+    state_set AUTO_UPDATE_SKIP_COMMIT ""
+    state_set AUTO_UPDATE_SKIP_REASON ""
     state_touch_updated
 
     printf '\n'
@@ -95,6 +148,7 @@ cmd_update_app() {
 cmd_update_supabase() {
     require_root update supabase
     _update_preflight
+    update_lock_or_die
     SO_LOG_FILE="${LOG_DIR}/update-supabase-$(timestamp).log"
 
     banner "Update Supabase"
@@ -177,6 +231,7 @@ cmd_update_supabase() {
 
 cmd_update_all() {
     require_root update all
+    update_lock_or_die
     banner "Update Everything"
     printf '\n'
     log_info "Updating Supabase first, then the application."
@@ -190,15 +245,16 @@ cmd_update_all() {
     return 0
 }
 
-# Dispatcher for `sentinel-ops update [app|supabase|all]`.
+# Dispatcher for `sentinel-ops update [app|supabase|all|installer]`.
 cmd_update() {
     case "${1:-app}" in
         app|application|sentinel-ops) cmd_update_app ;;
         supabase|db)                  cmd_update_supabase ;;
         all|everything)               cmd_update_all ;;
+        installer|self)               cmd_self_update "${@:2}" ;;
         *)
             log_error "Unknown update target: $1"
-            printf 'Valid targets: app, supabase, all\n'
+            printf 'Valid targets: app, supabase, all, installer\n'
             return 2
             ;;
     esac

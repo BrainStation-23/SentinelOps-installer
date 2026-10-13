@@ -88,6 +88,11 @@ _status_app() {
     status_line "Git branch" "" "$(state_get APP_BRANCH "$APP_BRANCH")"
     status_line "Git commit" "" "$(repo_short_commit)"
     status_line "Image" "" "$(state_get APP_IMAGE 'none')"
+    if [[ "$AUTO_UPDATE_ENABLED" == "true" ]]; then
+        status_line "Auto-update" "ok" "$(state_get AUTO_UPDATE_LAST_RESULT 'enabled, not run yet') - see: sentinel-ops auto-update status"
+    else
+        status_line "Auto-update" "" "Off - see: sentinel-ops auto-update enable"
+    fi
 
     if container_running "$APP_CONTAINER_NAME"; then
         status_line "Frontend" "ok" "Running"
@@ -180,6 +185,7 @@ _status_meta() {
     section "History"
     status_line "Installed" "" "$(state_get INSTALLED_AT unknown)"
     status_line "Last update" "" "$(state_get UPDATED_AT never)"
+    status_line "Installer updated" "" "$(state_get INSTALLER_UPDATED_AT never)"
     local prev
     prev="$(state_get PREVIOUS_APP_COMMIT '')"
     [[ -n "$prev" ]] && status_line "Previous commit" "" "${prev:0:7}"

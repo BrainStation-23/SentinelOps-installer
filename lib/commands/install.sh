@@ -245,6 +245,12 @@ cmd_install() {
     state_set SUPABASE_VERSION  "$(supabase_current_version)"
     state_touch_updated
 
+    # A reinstall over kept config (nuke --keep-config) has the setting but
+    # not the timer, which nuke removed.
+    if [[ "$AUTO_UPDATE_ENABLED" == "true" ]]; then
+        autoupdate_refresh_units || log_warn "Could not install the auto-update timer; re-run: sentinel-ops auto-update enable"
+    fi
+
     _install_summary
     return 0
 }

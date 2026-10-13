@@ -640,3 +640,76 @@ and needs no overlay.
 
 Every setting defaults to off. An install that declines every prompt gets a
 byte-identical `supabase/.env` and no overlay file.
+
+---
+
+## 29. `self-update` replaces the installed copy by rename, and never waits for an update
+
+`install` copies `bin/`, `lib/` and `assets/` into the installation root, so a
+`git pull` in the original checkout changes nothing about what `sentinel-ops`
+runs. `sentinel-ops self-update` downloads the branch tarball from GitHub
+(`INSTALLER_BRANCH`, default `main`; `SENTINEL_OPS_INSTALLER_BRANCH`
+overrides it per run) and swaps it in. `self-update from <path>` uses a local
+checkout instead, for hosts that can't reach GitHub. Both paths go through the
+same steps:
+
+- **Validate before touching anything.** The download must contain all three
+  trees and the core libraries, and every script must pass `bash -n` and be
+  free of CRLF. A broken installer that replaces a working one leaves nothing
+  to run the fix with.
+- **Compare by content.** Identical trees mean "already up to date" and no
+  changes. `check` prints the added, removed and changed files without
+  applying them.
+- **Swap by `mv`, never by overwriting in place.** Bash reads a running script
+  lazily, so rewriting `bin/sentinel-ops` under a running process would splice
+  two versions together. A rename leaves that process holding the old inode.
+  The replaced copy is kept in `.installer-prev/` until the next self-update.
+  A failed rename part way through puts it back.
+- **Regenerate what the code generates.** The new copy re-renders the systemd
+  units for the backup schedule and auto-update, so a changed unit definition
+  reaches existing installs.
+
+It does **not** take the update lock (see 30). An auto-update can be in the
+middle of a 10-minute image build, and that must not block an operator from
+shipping a fix to the installer. The two cannot corrupt each other, because the
+running update keeps the files it already opened. It reads `assets/` by path,
+so a swap during a build can hand it the newer Dockerfile. That's an accepted
+trade-off: the assets travel with the installer for exactly this reason.
+
+The application is never touched. Updating the installer and deploying a
+release stay separate steps.
+
+---
+
+## 30. Auto-update polls with `ls-remote` and holds back a commit it shouldn't retry
+
+`sentinel-ops auto-update enable` installs a `sentinel-ops-autoupdate`
+timer (`AUTO_UPDATE_CALENDAR`, default `hourly`, with up to 5 minutes of
+random delay). Each check is one `git ls-remote` against the configured branch,
+compared with the deployed commit (`APP_COMMIT` in `.state/`). If they are
+equal, the check stops there: no fetch, no Supabase health check, no backup,
+no build. Only a moved branch runs `update app`, the same code path an operator
+uses.
+
+Two cases would otherwise make it misbehave, so a *held* commit
+(`AUTO_UPDATE_SKIP_COMMIT`) is recorded:
+
+- **A failed update.** Retrying the same commit every hour would rebuild a
+  broken image and take a pre-update backup every hour. The commit is held
+  until the branch moves on.
+- **A rollback.** After `rollback`, the branch is "ahead" of the deployed
+  commit, so the next check would immediately redeploy the release that was
+  just rolled back. `rollback` holds that commit.
+
+A newer commit replaces the hold. A successful manual `update app` clears it.
+
+The check compares against the *deployed* commit, not the checkout's `HEAD`. A
+failed update can leave `HEAD` fast-forwarded while the old image still runs,
+and comparing `HEAD` would then report "up to date" forever.
+
+Every operation that changes the deployment (`update app|supabase|all`,
+`rollback`) takes a non-blocking `flock` on `.state/update.lock`. An operator
+who runs into a running auto-update gets a clear refusal rather than a second
+interleaved deployment. An auto-update that runs into an operator skips that
+cycle. Auto-update never updates the installer itself: that stays an
+explicit `self-update` (see 29).

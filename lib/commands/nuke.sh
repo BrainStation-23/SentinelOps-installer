@@ -239,6 +239,23 @@ _nuke_filesystem() {
     return 0
 }
 
+# A timer left behind would keep firing at an installation that no longer
+# exists - and one firing mid-nuke would start deploying into it. Stopped
+# before anything else goes; the unit files go with the installation.
+_nuke_timers() {
+    have_cmd systemctl || return 0
+    local unit
+    for unit in "$SO_AUTOUPDATE_UNIT" "$SO_BACKUP_UNIT"; do
+        [[ -f "/etc/systemd/system/${unit}.timer" ]] || continue
+        systemctl disable --now "${unit}.timer" >/dev/null 2>&1 || true
+        systemctl stop "${unit}.service" >/dev/null 2>&1 || true
+        rm -f "/etc/systemd/system/${unit}.timer" "/etc/systemd/system/${unit}.service"
+        log_ok "Removed ${unit} timer"
+    done
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    return 0
+}
+
 # Only remove the PATH symlink if it actually points into what we just deleted.
 # A link to something else is somebody else's.
 _nuke_symlink() {
@@ -304,6 +321,8 @@ cmd_nuke() {
     # Logging to a file under INSTALL_DIR would only delete itself a moment
     # later, so this command reports to the terminal alone.
     SO_LOG_FILE=""
+
+    _nuke_timers
 
     if docker_daemon_ok; then
         phase_begin "Removing containers and volumes"
