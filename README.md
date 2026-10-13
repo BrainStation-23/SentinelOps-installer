@@ -226,7 +226,8 @@ actually runs**.
 │   └── supabase/{migrations,functions}
 ├── backups/<timestamp>/     database.sql, storage.tar.gz, functions.tar.gz,
 │                            config.tar.gz, checksums.txt, metadata.txt
-├── logs/                    installer logs
+├── logs/                    installer and auto-update logs
+├── .installer-prev/         installer copy replaced by the last self-update
 └── .state/                  deployed commit, image, versions, phase markers
 ```
 
@@ -263,9 +264,14 @@ those four are never offered. `sentinel-ops install` validates whatever port
 you choose against this list and against anything else already listening,
 before it ever tries to bind it.
 
-Both bind to **loopback only** (`APP_BIND`), so a proxy on this host reaches
-them and the public internet does not. Supabase's own Kong gateway is left in
-place rather than duplicated.
+Where they listen depends on the mode. A fresh install defaults to **LAN
+access**: the frontend binds to every interface and the firewall opens both
+ports to private address ranges only. `sentinel-ops network disable`, or moving
+to a domain with `sentinel-ops domain set`, binds the frontend back to loopback
+(`APP_BIND=127.0.0.1`), so only a proxy on this host reaches it. Kong always
+publishes on `0.0.0.0:8000` (upstream's default), and the firewall's `default
+deny incoming` is what keeps it off the internet. Supabase's own Kong gateway is
+left in place rather than duplicated.
 
 See [docs/REVERSE-PROXY.md](docs/REVERSE-PROXY.md) for nginx, Caddy and Traefik
 examples, and the WebSocket/upload-size gotchas worth knowing about.

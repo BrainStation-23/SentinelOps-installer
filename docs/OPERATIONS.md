@@ -236,13 +236,15 @@ sudo sentinel-ops nuke
 
 This is the counterpart to `install`. In order, it:
 
-1. Removes the frontend container and its staging container
-2. Runs `docker compose down -v --remove-orphans` — **this destroys the
+1. Stops and removes the auto-update and backup timers, so neither fires
+   during or after the teardown
+2. Removes the frontend container and its staging container
+3. Runs `docker compose down -v --remove-orphans` — **this destroys the
    database and all uploaded objects**
-3. Sweeps up anything still labelled with the Compose project, in case the
+4. Sweeps up anything still labelled with the Compose project, in case the
    compose file was already missing or unreadable
-4. Removes the `sentinel-ops:*` images
-5. Deletes `/opt/sentinel-ops` and the `/usr/local/bin/sentinel-ops` symlink
+5. Removes the `sentinel-ops:*` images
+6. Deletes `/opt/sentinel-ops` and the `/usr/local/bin/sentinel-ops` symlink
 
 Docker is torn down **before** the filesystem on purpose: `compose down` needs
 `supabase/docker-compose.yml` and `supabase/.env` to know what to remove, so
