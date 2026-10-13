@@ -24,17 +24,95 @@ _db_user() { env_get "${SUPABASE_DIR}/.env" POSTGRES_USER 2>/dev/null || printf 
 _db_name() { env_get "${SUPABASE_DIR}/.env" POSTGRES_DB   2>/dev/null || printf 'postgres'; }
 _db_pass() { env_get "${SUPABASE_DIR}/.env" POSTGRES_PASSWORD 2>/dev/null || printf ''; }
 
-# Run SQL from stdin inside the database container.
-db_psql() {
+# The bootstrap superuser of the self-hosted Supabase image. Its password is
+# POSTGRES_PASSWORD, like every other role the image creates.
+DB_SUPERUSER="supabase_admin"
+
+# Run SQL from stdin inside the database container, as the given role.
+_db_psql_as() {
+    local user="$1"; shift
     local cid
     cid="$(_db_container)" || return 1
     docker exec -i -e PGPASSWORD="$(_db_pass)" "$cid" \
-        psql -U "$(_db_user)" -d "$(_db_name)" -v ON_ERROR_STOP=1 "$@"
+        psql -U "$user" -d "$(_db_name)" -v ON_ERROR_STOP=1 "$@"
+}
+
+# Run SQL from stdin inside the database container.
+db_psql() {
+    _db_psql_as "$(_db_user)" "$@"
+}
+
+# Run SQL from stdin as the superuser. Reserved for the few grants the
+# migration role cannot give itself; everything else runs through db_psql so
+# the objects it creates stay owned by the migration role.
+db_psql_superuser() {
+    _db_psql_as "$DB_SUPERUSER" "$@"
 }
 
 # Run a single query and print the bare result.
 db_query() {
     printf '%s' "$1" | db_psql -tAq 2>/dev/null
+}
+
+_sql_ident() { printf '"%s"' "${1//\"/\"\"}"; }
+
+# Does the migration role hold SET on session_replication_role? Prints
+# "true", "false", or "unsupported" before PostgreSQL 15, where per-parameter
+# grants do not exist.
+db_replication_role_status() {
+    local ver
+    ver="$(db_query "SHOW server_version_num;")" || return 1
+    [[ "$ver" =~ ^[0-9]+$ ]] || return 1
+    if (( ver < 150000 )); then
+        printf 'unsupported'
+        return 0
+    fi
+    local has
+    has="$(db_query "SELECT has_parameter_privilege(current_user, 'session_replication_role', 'SET');")" || return 1
+    case "$has" in
+        t) printf 'true' ;;
+        f) printf 'false' ;;
+        *) return 1 ;;
+    esac
+}
+
+# Let the migration role set session_replication_role. The application's
+# restore loads tables with foreign keys and triggers suspended, and on a
+# self-hosted stack the migration role (postgres) is not a superuser, so it
+# needs this one grant - which only the superuser can give. Idempotent.
+#
+# Never fails the caller's run: a missing grant breaks backup restore inside
+# the application, not the deployment, so it is reported loudly instead.
+db_ensure_replication_role_grant() {
+    local status
+    if ! status="$(db_replication_role_status)"; then
+        log_warn "Could not check whether $(_db_user) may set session_replication_role."
+        return 1
+    fi
+
+    case "$status" in
+        true)
+            log_debug "$(_db_user) may already set session_replication_role"
+            return 0
+            ;;
+        unsupported)
+            log_warn "PostgreSQL is older than 15; cannot grant SET on session_replication_role."
+            log_warn "Restoring a backup from inside the application will fail."
+            return 1
+            ;;
+    esac
+
+    if printf 'GRANT SET ON PARAMETER session_replication_role TO %s;\n' "$(_sql_ident "$(_db_user)")" \
+            | db_psql_superuser -q >>"${SO_LOG_FILE:-/dev/null}" 2>&1 \
+        && [[ "$(db_replication_role_status)" == "true" ]]; then
+        log_ok "Granted $(_db_user) SET on session_replication_role (needed by backup restore)"
+        return 0
+    fi
+
+    log_warn "Could not grant $(_db_user) SET on session_replication_role as ${DB_SUPERUSER}."
+    log_warn "Restoring a backup from inside the application will fail until it is granted."
+    log_warn "Retry with: sentinel-ops repair apply"
+    return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -87,6 +165,10 @@ deploy_migrations() {
         log_error "Could not create the migration tracking table."
         return 1
     fi
+
+    # Before the early return below, so an already-current database still gets
+    # it. Not fatal: see db_ensure_replication_role_grant.
+    db_ensure_replication_role_grant || true
 
     local applied_list
     applied_list="$(db_query "SELECT version FROM supabase_migrations.schema_migrations;")" || applied_list=""
