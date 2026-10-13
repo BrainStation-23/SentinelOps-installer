@@ -2,7 +2,8 @@
 # lib/commands/repair.sh - validate supabase/.env for known-mechanical
 # mistakes (CRLF, stray whitespace around "=", duplicate keys, a trailing
 # slash on a public URL), auto-fix them, re-wire Azure AD if it drifted back
-# to upstream's broken default, and restart what needs it. A container has
+# to upstream's broken default, re-apply the database grant backup restore
+# needs, and restart what needs it. A container has
 # already loaded its environment; editing the file alone changes nothing
 # until it is recreated.
 # shellcheck shell=bash
@@ -20,7 +21,24 @@ _repair_check() {
         done <<<"$issues"
         printf '\nRun `sentinel-ops repair apply` to fix these and restart the affected services.\n'
     fi
+    _repair_check_database
     return 0
+}
+
+# Backup restore inside the application needs the migration role to be allowed
+# to set session_replication_role; see db_ensure_replication_role_grant.
+_repair_check_database() {
+    section "Database"
+    if ! _db_container >/dev/null 2>&1; then
+        status_line "Restore grant" "warn" "Database container not running; not checked"
+        return 0
+    fi
+    case "$(db_replication_role_status 2>/dev/null)" in
+        true)        status_line "Restore grant" "ok"   "$(_db_user) may set session_replication_role" ;;
+        false)       status_line "Restore grant" "warn" "Missing; backup restore will fail. Run: sentinel-ops repair apply" ;;
+        unsupported) status_line "Restore grant" "warn" "PostgreSQL older than 15; backup restore will fail" ;;
+        *)           status_line "Restore grant" "warn" "Could not be checked" ;;
+    esac
 }
 
 _repair_apply() {
@@ -53,6 +71,13 @@ _repair_apply() {
     if [[ "$before_hardening" != "$(_hardening_fingerprint)" ]]; then
         changed="true"
         log_ok "Re-applied the auth hardening configuration"
+    fi
+
+    # A database grant takes effect immediately; it needs no restart.
+    if _db_container >/dev/null 2>&1; then
+        db_ensure_replication_role_grant || true
+    else
+        log_warn "The database container is not running; skipped the backup restore grant."
     fi
 
     if [[ "$changed" != "true" ]]; then

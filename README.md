@@ -151,7 +151,7 @@ switches over with a config change and a restart — no reinstall.
 | `sentinel-ops domain [status\|set <hostname>]` | Point the stack at a real domain (config + restart, no reinstall) |
 | `sentinel-ops azure [status\|enable\|disable]` | Configure Azure AD (Microsoft Entra ID) sign-in |
 | `sentinel-ops auth [status\|enable\|disable] <feature>` | Optional Supabase Auth hardening - see [AUTH-HARDENING.md](docs/AUTH-HARDENING.md) |
-| `sentinel-ops repair [check\|apply]` | Validate `supabase/.env` for known mechanical mistakes and fix them |
+| `sentinel-ops repair [check\|apply]` | Validate `supabase/.env` for known mechanical mistakes and fix them; check/apply the backup restore grant |
 | `sentinel-ops nuke` | **Destroy this installation** so a fresh one can be tested |
 
 Global options: `--dir <path>`, `--yes`, `--show`, `--force`, `--debug`.
@@ -406,6 +406,13 @@ redirect URI, and restarts Kong/Auth so the fixes actually take effect — a
 container already has the old environment loaded; editing the file alone
 changes nothing until it is recreated. It never touches a real configuration
 choice (a custom domain, a disabled provider), only mechanical formatting.
+
+Both also cover one database grant. Restoring a backup from inside the
+application loads tables with `session_replication_role = replica`, which the
+migration role (`postgres`, not a superuser on self-hosted Supabase) may only
+set once `supabase_admin` grants it. Every install and update applies that
+grant; `repair check` reports it as "Restore grant" and `repair apply` adds it
+if it is missing. It needs PostgreSQL 15 or newer.
 
 ## Frontend build
 
