@@ -25,8 +25,9 @@ _menu_installed() {
     printf ' 14. Repair supabase/.env (validate and auto-fix)\n'
     printf ' 15. Update the installer itself\n'
     printf ' 16. Automatic application updates\n'
-    printf ' 17. Destroy this installation (nuke)\n'
-    printf ' 18. Exit\n\n'
+    printf ' 17. Application branch (e.g. switch to dev)\n'
+    printf ' 18. Destroy this installation (nuke)\n'
+    printf ' 19. Exit\n\n'
     printf 'Select: '
 }
 
@@ -49,7 +50,7 @@ cmd_menu() {
         return 2
     fi
 
-    local choice domain_choice
+    local choice domain_choice branch_choice
     while true; do
         if installation_exists; then
             _menu_installed
@@ -77,8 +78,14 @@ cmd_menu() {
                 # rather than when the menu does.
                 15) ( cmd_self_update ) || true ;;
                 16) cmd_autoupdate      || true ;;
-                17) cmd_nuke            || true ;;
-                18|q|quit|exit) return 0 ;;
+                17)
+                    cmd_branch status || true
+                    printf '\nSwitch to branch (blank to keep): '
+                    IFS= read -r branch_choice || branch_choice=""
+                    [[ -n "$branch_choice" ]] && { cmd_branch set "$branch_choice" || true; }
+                    ;;
+                18) cmd_nuke            || true ;;
+                19|q|quit|exit) return 0 ;;
                 *) log_warn "Invalid selection: ${choice}" ;;
             esac
         else

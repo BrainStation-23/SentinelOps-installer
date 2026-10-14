@@ -139,6 +139,7 @@ switches over with a config change and a restart — no reinstall.
 | `sentinel-ops update all` | Update Supabase, then the application |
 | `sentinel-ops self-update [check\|from <path>]` | Update this installer itself (also `update installer`); the stack is untouched - see [OPERATIONS.md](docs/OPERATIONS.md#updating-the-installer-itself) |
 | `sentinel-ops auto-update [status\|enable\|disable\|run-now]` | Check the application branch on a timer and update **only** when it has a new commit - see [OPERATIONS.md](docs/OPERATIONS.md#automatic-application-updates) |
+| `sentinel-ops branch [status\|set <name>]` | Choose the application branch to deploy (e.g. `dev`); `update` and auto-update follow it - see [OPERATIONS.md](docs/OPERATIONS.md#deploying-a-different-branch) |
 | `sentinel-ops status` | Health and version of every component |
 | `sentinel-ops credentials` | Show generated credentials (masked; `--show` to reveal) |
 | `sentinel-ops backup [create\|list\|verify]` | Full-stack backups (database, Storage, functions, config) |
