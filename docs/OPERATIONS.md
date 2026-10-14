@@ -61,6 +61,29 @@ too (`journalctl -u sentinel-ops-autoupdate`).
 Auto-update deploys the application only. Supabase updates and installer
 updates stay manual.
 
+## Deploying a different branch
+
+```bash
+sentinel-ops branch                 # configured vs deployed branch
+sentinel-ops branch set dev         # switch, then offers to deploy it now
+```
+
+`branch set` checks that the branch exists on the repository, saves
+`APP_BRANCH` in `config/installer.env` and offers to run
+`sentinel-ops update app`, which checks the branch out and deploys it with the
+usual backup and migrations. If you decline, the next `update app` deploys it,
+and so does auto-update at its next check: auto-update always follows the
+configured branch.
+
+Migrations are only ever applied forward. If the new branch does not contain
+the deployed commit (going from `dev` back to `main`, for example), the
+command warns and asks first. Migrations the old branch applied stay applied,
+so if the new branch cannot run against that schema, restore a backup taken
+while it was deployed (see [BACKUPS.md](BACKUPS.md)).
+
+This only chooses the application branch. The installer's own branch is
+`INSTALLER_BRANCH` (see below).
+
 ## Updating the installer itself
 
 ```bash
@@ -211,7 +234,8 @@ Edit `/opt/sentinel-ops/config/installer.env`, then apply:
 | Changed | Apply with |
 |---|---|
 | `SUPABASE_PUBLIC_URL`, `SITE_URL`, `API_EXTERNAL_URL` | `sentinel-ops update app` (restarts the container with the new values — read from `process.env` at runtime, not baked into the bundle) |
-| `APP_BRANCH`, `APP_REPOSITORY` | `sentinel-ops update app` |
+| `APP_BRANCH` | `sentinel-ops branch set <name>` (saves and deploys in one step) |
+| `APP_REPOSITORY` | `sentinel-ops update app` |
 | `APP_BIND`, `APP_PORT` | `sentinel-ops update app` |
 | `ENABLE_LOGFLARE` | `sentinel-ops install` (re-runs the analytics phase) |
 

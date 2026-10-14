@@ -7,6 +7,7 @@
 #   sentinel-ops update [target]    app (default) | supabase | all | installer
 #   sentinel-ops self-update [check|from <path>]   update this tool itself
 #   sentinel-ops auto-update [status|enable|disable|run-now]
+#   sentinel-ops branch [status|set <name>]   which app branch is deployed
 #   sentinel-ops status             what is actually running
 #   sentinel-ops credentials        generated Supabase credentials
 #   sentinel-ops backup [create|list|verify]
@@ -46,7 +47,7 @@ for _lib in common os prereqs config supabase logflare azure hardening firewall 
     # shellcheck source=/dev/null
     source "${SO_LIB_DIR}/${_lib}.sh"
 done
-for _lib in install update selfupdate autoupdate status credentials maintenance backup remote schedule nuke network azure auth domain repair; do
+for _lib in install update selfupdate autoupdate status credentials maintenance backup remote schedule nuke network azure auth domain branch repair; do
     # shellcheck source=/dev/null
     source "${SO_LIB_DIR}/commands/${_lib}.sh"
 done
@@ -76,6 +77,9 @@ Commands:
   auto-update [status|enable|disable|run-now]
                           Periodically check the application branch and run
                           `update app` only when it has a new commit
+  branch [status|set <name>]
+                          Choose the application branch to deploy (e.g. dev);
+                          `update` and auto-update both follow it
   status                  Show what is currently deployed and healthy
   credentials             Show the generated Supabase credentials
   backup [create|list|verify]
@@ -166,6 +170,7 @@ main() {
         schedule)    cmd_schedule "${rest[@]:-status}" ;;
         network)     cmd_network "${rest[@]:-status}" ;;
         domain)      cmd_domain "${rest[@]:-status}" ;;
+        branch)      cmd_branch "${rest[@]:-status}" ;;
         azure)       cmd_azure "${rest[@]:-status}" ;;
         auth)        cmd_auth "${rest[@]:-status}" ;;
         repair)      cmd_repair "${rest[@]:-check}" ;;
