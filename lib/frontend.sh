@@ -119,26 +119,77 @@ frontend_provision_build_files() {
 frontend_image_tag()  { printf '%s:%s' "$APP_IMAGE_NAME" "$(repo_short_commit)"; }
 frontend_image_latest() { printf '%s:latest' "$APP_IMAGE_NAME"; }
 
+# Hosts a build has to reach: the Dockerfile's `# syntax=` line and its base
+# images are pulled from Docker Hub on every build.
+FRONTEND_REGISTRY_HOSTS="registry-1.docker.io auth.docker.io"
+
+_frontend_registry_resolves() {
+    local host
+    for host in $FRONTEND_REGISTRY_HOSTS; do
+        getent hosts "$host" >/dev/null 2>&1 || return 1
+    done
+}
+
+# Fail fast, with a plain explanation, when this host cannot resolve Docker
+# Hub. Otherwise the same problem surfaces as a BuildKit trace about anonymous
+# tokens. Skipped when Docker is configured with a proxy (the proxy resolves
+# names, not this host) or when getent is unavailable.
+frontend_registry_preflight() {
+    have_cmd getent || return 0
+    if [[ -n "$(docker info --format '{{.HTTPProxy}}{{.HTTPSProxy}}' 2>/dev/null)" ]]; then
+        return 0
+    fi
+    _frontend_registry_resolves && return 0
+
+    log_warn "Cannot resolve Docker Hub yet; waiting up to 30s for DNS..."
+    wait_for 30 5 _frontend_registry_resolves && return 0
+
+    log_error "DNS lookup failed for Docker Hub (${FRONTEND_REGISTRY_HOSTS// /, })."
+    log_error "The build needs it to pull its base images. Check this host's resolver:"
+    log_error "  resolvectl query auth.docker.io"
+    log_error "  resolvectl status"
+    log_error "If the upstream DNS server is unreliable, set FallbackDNS= in"
+    log_error "/etc/systemd/resolved.conf and run: systemctl restart systemd-resolved"
+    return 1
+}
+
 # Build the production image, tagged with the Git SHA so a previous image is
 # always available to roll back to.
+#
+# A build that fails on a DNS or network error is retried: those are usually
+# brief, and a failed auto-update holds its commit until the branch moves on.
+# Any other failure is a real build error and is not retried.
 frontend_build_image() {
-    local tag latest
+    local tag latest attempt=1 attempts=3
+    local delay="${SO_BUILD_RETRY_DELAY:-15}"
     tag="$(frontend_image_tag)"
     latest="$(frontend_image_latest)"
 
     frontend_provision_build_files || return 1
+    frontend_registry_preflight || return 1
 
     log_info "Building Docker image ${tag}..."
     # Supabase URLs and keys are not build-time inputs: the app reads them from
     # process.env at runtime via /runtime-config.js, and frontend_run_container
     # passes them as container env vars. See frontend_run_container below.
-    if ! run_logged "docker build" docker build \
+    while ! run_logged "docker build" docker build \
             --build-arg "APP_PORT=${APP_PORT}" \
             -t "$tag" -t "$latest" \
             -f "${APP_DIR}/Dockerfile" \
-            "$APP_DIR"; then
-        return 1
-    fi
+            "$APP_DIR"; do
+        if ! is_network_error "$SO_LAST_OUTPUT"; then
+            return 1
+        fi
+        if (( attempt >= attempts )); then
+            log_error "The build kept failing on network errors (${attempts} attempts)."
+            log_error "Check this host's DNS and outbound access to Docker Hub."
+            return 1
+        fi
+        log_warn "That looks like a network error; retrying in ${delay}s (attempt $((attempt + 1))/${attempts})..."
+        sleep "$delay"
+        attempt=$(( attempt + 1 ))
+        delay=$(( delay * 2 ))
+    done
     log_ok "Image built: ${tag}"
     return 0
 }
