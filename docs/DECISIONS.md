@@ -713,3 +713,20 @@ who runs into a running auto-update gets a clear refusal rather than a second
 interleaved deployment. An auto-update that runs into an operator skips that
 cycle. Auto-update never updates the installer itself: that stays an
 explicit `self-update` (see 29).
+
+## 31. The image build checks DNS first and retries only network failures
+
+The Dockerfile's `# syntax=` line and its base images are pulled from Docker
+Hub on every build, so a host whose resolver is flaky fails the build with a
+BuildKit trace about anonymous tokens, which says nothing about DNS. Before
+building, `frontend_registry_preflight` resolves Docker Hub's hosts (waiting up
+to 30s) and, if that fails, stops with an error that names DNS and the commands
+to check it. It is skipped when Docker is configured with a proxy, because the
+proxy resolves names and this host does not have to.
+
+A build that still fails is retried twice (15s, then 30s), but only when its
+output looks like a DNS or network error (`is_network_error`). A compile error
+is not retried. Retrying it would only fail again more slowly. The retry
+matters most for auto-update: a failed update holds its commit until the
+branch moves on (see 30), so one short DNS blip would otherwise block
+deployment until the next push.

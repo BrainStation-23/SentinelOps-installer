@@ -110,11 +110,15 @@ have_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 # Run a command, capturing output into the log file. On failure the tail of the
 # output is shown so the operator sees the real error, not just an exit code.
+# The full output is also left in SO_LAST_OUTPUT for callers that need to
+# classify a failure (see is_network_error).
+SO_LAST_OUTPUT=""
 run_logged() {
     local desc="$1"; shift
     local out rc=0
     log_debug "exec: $*"
     out="$("$@" 2>&1)" || rc=$?
+    SO_LAST_OUTPUT="$out"
     if [[ -n "$SO_LOG_FILE" ]]; then
         printf '%s\n' "$out" 2>/dev/null >>"$SO_LOG_FILE" || true
     fi
@@ -124,6 +128,12 @@ run_logged() {
         return "$rc"
     fi
     return 0
+}
+
+# True when command output reads like a transient DNS or network failure
+# rather than a real error in what was being run: is_network_error <text>
+is_network_error() {
+    grep -qiE 'i/o timeout|no such host|temporary failure in name resolution|server misbehaving|TLS handshake timeout|connection reset by peer|connection refused|network is unreachable|context deadline exceeded|failed to fetch anonymous token|failed to do request' <<<"$1"
 }
 
 # Retry a command with a fixed delay: retry <attempts> <delay> <cmd...>
