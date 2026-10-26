@@ -33,6 +33,7 @@ _status_system() {
     else
         status_line "Docker Compose" "bad" "Unavailable"
     fi
+    docker_daemon_ok 2>/dev/null && images_disk_status
 
     status_line "Installer" "" "$(state_get INSTALLER_VERSION "$SO_INSTALLER_VERSION")"
     status_line "Install dir" "" "$INSTALL_DIR"

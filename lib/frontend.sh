@@ -119,6 +119,12 @@ frontend_provision_build_files() {
 frontend_image_tag()  { printf '%s:%s' "$APP_IMAGE_NAME" "$(repo_short_commit)"; }
 frontend_image_latest() { printf '%s:latest' "$APP_IMAGE_NAME"; }
 
+# Every build carries this label, so cleanup can find this installer's own
+# untagged builds without touching anyone else's (lib/images.sh). It is set on
+# the command line rather than in the Dockerfile, because the repository's own
+# Dockerfile takes precedence over the installer's.
+APP_IMAGE_LABEL="org.sentinel-ops.component=frontend"
+
 # Hosts a build has to reach: the Dockerfile's `# syntax=` line and its base
 # images are pulled from Docker Hub on every build.
 FRONTEND_REGISTRY_HOSTS="registry-1.docker.io auth.docker.io"
@@ -174,6 +180,7 @@ frontend_build_image() {
     # passes them as container env vars. See frontend_run_container below.
     while ! run_logged "docker build" docker build \
             --build-arg "APP_PORT=${APP_PORT}" \
+            --label "$APP_IMAGE_LABEL" \
             -t "$tag" -t "$latest" \
             -f "${APP_DIR}/Dockerfile" \
             "$APP_DIR"; do

@@ -774,3 +774,41 @@ There are two checks, because they answer different questions:
 
 Both send the `apikey` header, which the gateway requires on every route; the
 TUS `OPTIONS` route itself needs no JWT.
+
+---
+
+## 33. Image cleanup removes superseded tags, not just dangling images, and keeps the rollback image
+
+Nothing removed images, so every deployment grew the disk, and auto-update did
+it unattended. Most of the growth is not "dangling": each build keeps its
+`sentinel-ops:<sha>` tag, and each Supabase update leaves the previous version
+of every service image tagged. `docker image prune` would have recovered very
+little, and `docker image prune -a` or `docker system prune` would remove other
+workloads' images on a shared host.
+
+So cleanup works by repository and keep-list (`lib/images.sh`):
+
+- **Application:** every `APP_IMAGE_NAME` tag except `APP_IMAGE`,
+  `PREVIOUS_APP_IMAGE` and `:latest`. `rollback` needs the previous image to
+  still exist, so it is always kept. Untagged builds are removed by label: every
+  build carries `--label org.sentinel-ops.component=frontend`, set on the
+  command line rather than in the Dockerfile, because the repository's own
+  Dockerfile takes precedence over the installer's (4).
+- **Supabase:** `docker compose config --images` lists what the stack uses now.
+  For each of those repositories, the other local tags go. Repositories the
+  config does not name are left alone, and a digest-pinned reference is skipped
+  because it says nothing about which tags are older.
+- **Build cache:** `docker builder prune --filter until=168h`. This is the one
+  host-wide step, because build cache cannot be told apart by project. It is
+  only cache, so the cost to anyone else is a slower build.
+
+Removal is plain `docker rmi`, never `-f`, and skips any image a container,
+running or stopped, still uses (a leftover staging container, say). A tag that
+points at the same image as a kept one is left alone, since untagging it frees
+nothing.
+
+Cleanup runs only after an update has fully succeeded and recorded its new
+state, never on a failed or rolled-back one, so the operator still has every
+image to investigate with. A cleanup problem is logged as a warning and never
+fails the update. `IMAGE_CLEANUP_ENABLED=false` turns the automatic step off,
+and `sentinel-ops cleanup [--dry-run]` runs it on demand under the update lock.
