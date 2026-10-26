@@ -58,6 +58,7 @@ _status_supabase() {
     _status_probe "Auth"       supabase_check_auth
     _status_probe "Studio"     supabase_check_studio
     status_line "Migrations" "" "$(migrations_applied_count) applied"
+    storage_status
     return 0
 }
 

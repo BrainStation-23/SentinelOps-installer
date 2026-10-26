@@ -187,6 +187,9 @@ cmd_update_supabase() {
     # An upstream .env.example change can reset COMPOSE_FILE, which would
     # silently drop the auth hardening overlay - re-register it.
     hardening_apply_config || log_warn "Could not re-apply the auth hardening configuration."
+    # Upstream's refreshed docker-compose.yml brings back its 50 MiB storage
+    # limit; the overlay that raises it must stay registered.
+    storage_apply_config || log_warn "Could not re-apply the storage upload limit."
     phase_end
 
     phase_begin "Pulling images"

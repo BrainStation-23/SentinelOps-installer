@@ -24,6 +24,7 @@ _install_supabase_files() {
         azure_patch_compose || log_warn "Azure AD sign-in was configured but could not be wired into the auth container."
     fi
     hardening_apply_config || return 1
+    storage_apply_config || return 1
     return 0
 }
 
@@ -51,6 +52,19 @@ _install_auth_hardening() {
     hardening_apply_config || return 1
     if [[ "$before" != "$(_hardening_fingerprint)" ]] && supabase_service_running auth; then
         _auth_restart "" || return 1
+    fi
+    return 0
+}
+
+# The same re-run reasoning as auth hardening: an installation that predates
+# the storage overlay gets it here, and storage is recreated only if it
+# changed.
+_install_storage_limit() {
+    local before
+    before="$(_storage_fingerprint)"
+    storage_apply_config || return 1
+    if [[ "$before" != "$(_storage_fingerprint)" ]] && supabase_service_running storage; then
+        storage_restart || return 1
     fi
     return 0
 }
@@ -155,6 +169,7 @@ _install_summary() {
     status_line "Git commit" "" "$(repo_short_commit)"
     status_line "Image" "" "$(frontend_deployed_image)"
     status_line "Migrations" "" "$(migrations_applied_count) applied"
+    storage_status
 
     if azure_enabled; then
         section "Azure AD"
@@ -210,6 +225,10 @@ cmd_install() {
 
     phase_begin "Auth hardening"
     _install_auth_hardening || die "Could not apply the auth hardening configuration."
+    phase_end
+
+    phase_begin "Storage upload limit"
+    _install_storage_limit || die "Could not apply the storage upload limit."
     phase_end
 
     phase_begin "Network exposure"

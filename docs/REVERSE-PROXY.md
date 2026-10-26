@@ -30,7 +30,8 @@ or domain) is currently active. This replaces hand-editing
 cover.
 
 What it does **not** do is register DNS or run a proxy: point `app.example.com`
-at this server yourself, and see the worked configurations below for the proxy
+at this server yourself, and see the worked configurations below (Zoraxy,
+nginx, Caddy, Traefik) for the proxy
 that terminates TLS and forwards to the two upstreams `domain set` just
 printed.
 
@@ -92,6 +93,50 @@ Then use `sentinel-ops-frontend:41820` and `kong:8000` as the upstreams.
 
 These are references, not managed files. Adapt them to your setup.
 
+Whichever proxy you use, check it once it is up:
+
+```bash
+sudo sentinel-ops domain status
+```
+
+Under **Uploads** it reports the upload limit Storage advertises, both directly
+and through your proxy, and pushes one 6 MiB upload chunk through the proxy to
+confirm it is not refused. A `413` there means the proxy caps request bodies
+below what the App Catalog sends - see [Upload size](#things-that-will-bite-you).
+
+### Zoraxy
+
+Zoraxy is what we usually run in front of Sentinel Ops, and it needs the least
+configuration: it streams request bodies to the upstream with **no size limit**,
+upgrades WebSockets (Realtime) on its own, and sets `X-Forwarded-Proto`, which
+Storage uses to build the upload URLs it hands back to the browser.
+
+Create two rules with **Create Proxy Rule**:
+
+| Matching Keyword / Domain | Target | Remote Target Require TLS |
+|---|---|---|
+| `app.sentinelops.com` | `127.0.0.1:41820` | off |
+| `supabase.sentinelops.com` | `127.0.0.1:8000` | off |
+
+Issue the certificates under **TLS / SSL certificates** (ACME), and turn on
+**Force redirect HTTP request to HTTPS** on the listener.
+
+Things to leave alone:
+
+- **Don't start Zoraxy with a non-zero `-writetimeout`.** The default, `0`, is
+  what lets a long upload or a Realtime connection run as long as it needs to.
+- **Per-rule rate limiting** on the Supabase rule, if you turn it on, must stay
+  well above the upload rate: TUS sends one request per 6 MiB, and the
+  application itself makes many small requests per page. 100 req/s is a
+  reasonable floor.
+
+For `sentinel-ops auth enable rate-limit` (see
+[AUTH-HARDENING.md](AUTH-HARDENING.md)), add a custom header to the Supabase
+rule (**Edit Custom Header**): direction *to upstream*, name
+`X-Sentinel-Client-IP`, value `$remote_ip`. If Zoraxy itself sits behind
+another proxy or a CDN, `$remote_ip` is that hop's address, not the user's -
+set the header at the outermost proxy instead.
+
 ### nginx
 
 ```nginx
@@ -118,8 +163,9 @@ server {
     ssl_certificate     /etc/letsencrypt/live/supabase.sentinelops.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/supabase.sentinelops.com/privkey.pem;
 
-    # Storage uploads are large; the 1 MB default will reject them.
-    client_max_body_size 50M;
+    # Storage enforces its own upload limit (4 GiB by default); nginx's 1 MB
+    # default would refuse the very first 6 MiB upload chunk with a 413.
+    client_max_body_size 0;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -133,6 +179,20 @@ server {
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_read_timeout 3600s;
+    }
+
+    # Resumable (TUS) uploads: stream each chunk to Storage as it arrives
+    # instead of spooling it to disk first.
+    location /storage/v1/upload/resumable {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_request_buffering off;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
     }
 }
 ```
@@ -180,11 +240,12 @@ app.sentinelops.com {
 supabase.sentinelops.com {
     reverse_proxy 127.0.0.1:8000
     encode gzip zstd
-    request_body {
-        max_size 50MB
-    }
 }
 ```
+
+Caddy has no request body limit by default, and Storage enforces its own. If you
+add a `request_body { max_size … }` block, keep it at or above the Storage
+limit (`4GB`).
 
 ### Traefik (dynamic file provider)
 
@@ -212,6 +273,10 @@ http:
           - url: "http://127.0.0.1:8000"
 ```
 
+Traefik has no request body limit by default. If you attach a `buffering`
+middleware to the Supabase router, its `maxRequestBodyBytes` must allow at
+least one 6 MiB upload chunk - or leave buffering off that router entirely.
+
 ---
 
 ## Things that will bite you
@@ -220,8 +285,26 @@ http:
 long read timeout. Without them Realtime silently fails to connect while
 everything else looks fine.
 
-**Upload size.** nginx defaults to a 1 MB body limit, which rejects Storage
-uploads with a confusing 413.
+**Upload size.** App Catalog installers (a Homebrew `.pkg` is ~120 MB) are
+uploaded with TUS in 6 MiB chunks, so the proxy has to accept at least one
+~7 MiB request body. nginx defaults to 1 MB and answers with a confusing HTML
+413; Zoraxy, Caddy and Traefik have no limit unless you add one. Separately,
+Storage has its own limit: upstream Supabase ships 50 MiB, and the installer
+raises it to 4 GiB with a generated overlay,
+`supabase/docker-compose.sentinel-storage.yml` (change it with
+`STORAGE_FILE_SIZE_LIMIT` in `config/installer.env`, then
+`sentinel-ops repair apply`). `sentinel-ops status` shows the limit Storage
+actually advertises; `sentinel-ops domain status` also tests the proxy.
+
+**nginx must speak HTTP/1.1 to Supabase.** nginx proxies with HTTP/1.0 unless
+told otherwise, and current Supabase releases put Envoy in front of the stack,
+which answers HTTP/1.0 with `426 Upgrade Required` - on every route, not just
+Realtime. Keep `proxy_http_version 1.1;` in every `location` that points at
+`127.0.0.1:8000`.
+
+**Slow uplinks.** Supabase's gateway gives each request to Storage 30 seconds.
+A 6 MiB chunk therefore needs roughly 2 Mbit/s of upload bandwidth; slower
+links fail mid-upload whatever the proxy allows.
 
 **The URLs come from runtime env vars, not the bundle.** The app reads
 `SUPABASE_URL`/`SUPABASE_PUBLIC_URL` from `process.env` at runtime via
