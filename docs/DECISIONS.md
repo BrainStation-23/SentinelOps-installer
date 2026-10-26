@@ -171,6 +171,9 @@ What the installer owns instead is a stable contract: the frontend on
 [REVERSE-PROXY.md](REVERSE-PROXY.md) carries worked nginx, Caddy and Traefik
 configurations plus the two failure modes that actually bite — missing WebSocket
 headers breaking Realtime, and nginx's 1 MB body limit rejecting Storage uploads.
+Because the proxy is not ours, the installer checks it instead of configuring
+it: `sentinel-ops domain status` pushes one upload chunk through the public URL
+and reports a 413 (see 32).
 
 Supabase's Kong gateway is untouched. It was never the thing that needed
 replacing.
@@ -730,3 +733,44 @@ is not retried. Retrying it would only fail again more slowly. The retry
 matters most for auto-update: a failed update holds its commit until the
 branch moves on (see 30), so one short DNS blip would otherwise block
 deployment until the next push.
+
+---
+
+## 32. Storage's upload limit ships as a generated overlay, and is checked through the proxy
+
+Upstream's `docker-compose.yml` hard-codes `FILE_SIZE_LIMIT: 52428800` (50
+MiB) in the storage service's environment; it is not read from `.env`. Storage
+enforces the smaller of that and the bucket's own limit, so the application's
+4 GiB `app-installers` bucket was capped at 50 MiB and larger App Catalog
+installers could not be uploaded.
+
+The override is `supabase/docker-compose.sentinel-storage.yml`, registered in
+`COMPOSE_FILE` - the same mechanism, and for the same reason, as the auth
+hardening overlay (28): `update supabase` re-syncs `docker-compose.yml` from
+upstream, but never ships a file by this name. It sets both `FILE_SIZE_LIMIT`
+and `UPLOAD_FILE_SIZE_LIMIT`, because Storage prefers the latter when both
+exist. Unlike the hardening overlay it is always on: the limit is
+`STORAGE_FILE_SIZE_LIMIT` in `installer.env` (4 GiB by default), and a value
+that is not a byte count falls back to the default rather than reaching Compose.
+It is written on install, `update supabase` and `repair apply`; `repair apply`
+recreates only `storage`, and only when the overlay or its registration changed.
+
+The overlay registers with `present`, not by moving itself to the end of
+`COMPOSE_FILE` the way the hardening overlay does. Two overlays that both
+insisted on being last would swap places on every run, and `repair` would read
+that as drift and restart services every time.
+
+There are two checks, because they answer different questions:
+
+- `status` sends a TUS `OPTIONS` and reads `Tus-Max-Size`: through the gateway
+  (is Storage configured?) and through `SUPABASE_PUBLIC_URL` when that is
+  elsewhere (does the public route reach Storage?). It warns when the
+  advertised limit is below the configured one. An `OPTIONS` has no body, so it
+  cannot see a proxy's body limit.
+- `domain status` sends one 7 MiB TUS `PATCH` to an upload that does not
+  exist. Storage answers that with a 4xx of its own, so a 413 can only come from
+  something in front of it. This sends real bytes, so it is not part of the
+  routine `status`.
+
+Both send the `apikey` header, which the gateway requires on every route; the
+TUS `OPTIONS` route itself needs no JWT.

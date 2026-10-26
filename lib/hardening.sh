@@ -443,26 +443,7 @@ hardening_render_overlay() {
 # Add or remove the overlay from COMPOSE_FILE in supabase/.env, keeping every
 # other entry (the logs overlay, a pg17 overlay) and their order.
 _hardening_compose_file_set() {
-    local want="$1" env_file="${SUPABASE_DIR}/.env" current entry out="" entries=()
-    current="$(env_get "$env_file" COMPOSE_FILE 2>/dev/null || true)"
-    # Nothing to remove: leave an .env that never had the overlay byte-for-byte
-    # as it was, including one with no COMPOSE_FILE line at all.
-    if [[ "$want" != "true" && ":${current}:" != *":${HARDENING_OVERLAY}:"* ]]; then
-        return 0
-    fi
-    [[ -n "$current" ]] || current="docker-compose.yml"
-
-    IFS=':' read -r -a entries <<<"$current"
-    for entry in "${entries[@]}"; do
-        [[ -z "$entry" || "$entry" == "$HARDENING_OVERLAY" ]] && continue
-        out="${out:+${out}:}${entry}"
-    done
-    if [[ "$want" == "true" ]]; then
-        out="${out}:${HARDENING_OVERLAY}"
-    fi
-
-    [[ "$out" == "$(env_get "$env_file" COMPOSE_FILE 2>/dev/null || true)" ]] || \
-        env_set "$env_file" COMPOSE_FILE "$out"
+    compose_file_register "${SUPABASE_DIR}/.env" "$HARDENING_OVERLAY" "$1"
 }
 
 # Everything hardening_write_overlay can change, as one string - lets a caller

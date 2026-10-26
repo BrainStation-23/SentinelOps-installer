@@ -282,6 +282,61 @@ env_keys() {
         | sed -E 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=.*/\1/'
 }
 
+# Add or remove a Compose overlay in COMPOSE_FILE, the colon-separated list
+# Compose reads from supabase/.env (and the mechanism upstream's own run.sh
+# uses for its optional overlays). Every other entry keeps its place, and the
+# file is written only when the list actually changes - so an .env that never
+# had the overlay stays byte-for-byte as it was, including one with no
+# COMPOSE_FILE line at all.
+#
+#   true     registered, moved to the end of the list
+#   present  registered, left where it is if it already is (two overlays that
+#            both insisted on being last would swap places on every run)
+#   false    removed
+# compose_file_register <env-file> <overlay> <true|present|false>
+compose_file_register() {
+    local env_file="$1" overlay="$2" want="$3" current entry out="" listed=()
+    current="$(env_get "$env_file" COMPOSE_FILE 2>/dev/null || true)"
+    if [[ "$want" == "present" ]]; then
+        [[ ":${current}:" == *":${overlay}:"* ]] && return 0
+        want="true"
+    fi
+    if [[ "$want" != "true" && ":${current}:" != *":${overlay}:"* ]]; then
+        return 0
+    fi
+    [[ -n "$current" ]] || current="docker-compose.yml"
+
+    IFS=':' read -r -a listed <<<"$current"
+    for entry in "${listed[@]}"; do
+        [[ -z "$entry" || "$entry" == "$overlay" ]] && continue
+        out="${out:+${out}:}${entry}"
+    done
+    if [[ "$want" == "true" ]]; then
+        out="${out}:${overlay}"
+    fi
+
+    [[ "$out" == "$(env_get "$env_file" COMPOSE_FILE 2>/dev/null || true)" ]] || \
+        env_set "$env_file" COMPOSE_FILE "$out"
+}
+
+# A byte count for people: 4294967296 -> "4.0 GiB". Integer arithmetic only,
+# so it needs neither bc nor awk's floating point.
+human_bytes() {
+    local n="$1" unit=0 units=(B KiB MiB GiB TiB)
+    [[ "$n" =~ ^[0-9]+$ ]] || { printf '%s' "$n"; return 1; }
+    local whole="$n" tenths=0
+    while (( whole >= 1024 && unit < ${#units[@]} - 1 )); do
+        tenths=$(( (whole % 1024) * 10 / 1024 ))
+        whole=$(( whole / 1024 ))
+        unit=$(( unit + 1 ))
+    done
+    if (( unit == 0 )); then
+        printf '%s B' "$n"
+    else
+        printf '%s.%s %s' "$whole" "$tenths" "${units[$unit]}"
+    fi
+}
+
 # Mask a secret for display: keep the first and last four characters.
 mask_secret() {
     local s="$1"

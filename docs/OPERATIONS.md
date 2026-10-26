@@ -174,6 +174,7 @@ sentinel-ops status
 | Frontend not responding | `sentinel-ops logs app` |
 | Supabase unhealthy | `sentinel-ops logs supabase` |
 | TLS / routing not working | Your reverse proxy — see [REVERSE-PROXY.md](REVERSE-PROXY.md). Realtime needs WebSocket headers. |
+| Large uploads fail (App Catalog installers) | `sentinel-ops status` (Storage's upload limit), then `sentinel-ops domain status` (the proxy) — see [REVERSE-PROXY.md](REVERSE-PROXY.md#things-that-will-bite-you) |
 | No logs in Studio | [docs/LOGFLARE.md](LOGFLARE.md) |
 
 ### "Supabase health check failed"
@@ -238,10 +239,21 @@ Edit `/opt/sentinel-ops/config/installer.env`, then apply:
 | `APP_REPOSITORY` | `sentinel-ops update app` |
 | `APP_BIND`, `APP_PORT` | `sentinel-ops update app` |
 | `ENABLE_LOGFLARE` | `sentinel-ops install` (re-runs the analytics phase) |
+| `STORAGE_FILE_SIZE_LIMIT` | `sentinel-ops repair apply` (rewrites the storage overlay and recreates `storage`) |
 
 Changing a URL requires a **restart**, not a rebuild: the app reads
 `SUPABASE_URL`/`SUPABASE_PUBLISHABLE_KEY` from `process.env` at runtime via
 `/runtime-config.js`.
+
+### Storage on S3
+
+The installer deploys Storage with its file backend (`supabase/volumes/storage`).
+If you move it to an S3 backend yourself, add a lifecycle rule to that bucket
+that aborts incomplete multipart uploads after a couple of days
+(`AbortIncompleteMultipartUpload`, `DaysAfterInitiation: 2`). A resumable
+upload that is abandoned half way - a closed tab, a dropped connection - leaves
+its parts behind as an incomplete multipart upload, which neither Storage nor
+the application lists or cleans up, and the provider bills for them.
 
 ## Stopping without destroying anything
 

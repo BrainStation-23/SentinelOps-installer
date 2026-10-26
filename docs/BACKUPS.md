@@ -37,6 +37,13 @@ Local retention is count-based: `BACKUP_RETENTION_COUNT` (default 10, in
 `config/installer.env`) — the oldest cycles are pruned once that limit is
 passed.
 
+`storage.tar.gz` grows with everything uploaded to Storage, including App
+Catalog installers, which can be up to 4 GiB each (see
+`STORAGE_FILE_SIZE_LIMIT`). Every local cycle holds a full copy, so size
+`BACKUP_RETENTION_COUNT` and the disk under `backups/` with that in mind; restic
+deduplicates unchanged objects across its own snapshots, so the 3-2-1 copies
+grow by what changed, not by the full size each time.
+
 ## Restoring
 
 ```bash

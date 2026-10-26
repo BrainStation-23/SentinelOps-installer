@@ -21,8 +21,19 @@ _repair_check() {
         done <<<"$issues"
         printf '\nRun `sentinel-ops repair apply` to fix these and restart the affected services.\n'
     fi
+    _repair_check_storage
     _repair_check_database
     return 0
+}
+
+# Without the overlay, Storage is back on upstream's 50 MiB upload limit.
+_repair_check_storage() {
+    section "Storage"
+    if storage_overlay_registered; then
+        status_line "Upload limit" "ok" "Overlay registered ($(human_bytes "$(storage_file_size_limit)"))"
+    else
+        status_line "Upload limit" "warn" "Overlay missing; uploads are capped at 50 MiB. Run: sentinel-ops repair apply"
+    fi
 }
 
 # Backup restore inside the application needs the migration role to be allowed
@@ -73,6 +84,17 @@ _repair_apply() {
         log_ok "Re-applied the auth hardening configuration"
     fi
 
+    # An installation that predates the storage overlay, or whose COMPOSE_FILE
+    # was reset, is back on upstream's 50 MiB upload limit. Only storage reads
+    # it, so only storage needs recreating.
+    local before_storage restart_storage="false"
+    before_storage="$(_storage_fingerprint)"
+    storage_apply_config >/dev/null || log_warn "The storage upload limit could not be re-applied."
+    if [[ "$before_storage" != "$(_storage_fingerprint)" ]]; then
+        restart_storage="true"
+        log_ok "Re-applied the storage upload limit ($(human_bytes "$(storage_file_size_limit)"))"
+    fi
+
     # A database grant takes effect immediately; it needs no restart.
     if _db_container >/dev/null 2>&1; then
         db_ensure_replication_role_grant || true
@@ -80,8 +102,16 @@ _repair_apply() {
         log_warn "The database container is not running; skipped the backup restore grant."
     fi
 
+    if [[ "$restart_storage" == "true" ]]; then
+        if storage_restart; then
+            log_ok "Storage restarted with the new upload limit"
+        else
+            log_warn "Could not restart storage automatically; restart Supabase manually: sentinel-ops update supabase"
+        fi
+    fi
+
     if [[ "$changed" != "true" ]]; then
-        log_info "Nothing to restart."
+        [[ "$restart_storage" == "true" ]] || log_info "Nothing to restart."
         return 0
     fi
 

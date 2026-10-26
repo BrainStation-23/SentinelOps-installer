@@ -14,6 +14,10 @@ _domain_status() {
     if [[ "$SITE_URL" == https://* ]]; then
         status_line "Mode" "ok" "Domain (${SITE_URL})"
         status_line "Reverse proxy upstreams" "" "127.0.0.1:${APP_PORT} (frontend), 127.0.0.1:$(supabase_kong_port 2>/dev/null || printf 8000) (Supabase)"
+        # Through the proxy, since that is what browsers upload through.
+        section "Uploads"
+        storage_status
+        storage_proxy_status
     elif [[ "$APP_BIND" == "0.0.0.0" ]]; then
         status_line "Mode" "warn" "No domain configured - LAN access enabled instead"
     else
@@ -93,7 +97,9 @@ _domain_set() {
     status_line "Supabase" "" "$SUPABASE_PUBLIC_URL"
     printf '\nPoint your reverse proxy at 127.0.0.1:%s (frontend) and 127.0.0.1:%s (Supabase API).\n' \
         "$APP_PORT" "$(supabase_kong_port 2>/dev/null || printf 8000)"
-    printf 'See docs/REVERSE-PROXY.md for worked nginx/Caddy/Traefik configs.\n\n'
+    printf 'See docs/REVERSE-PROXY.md for worked Zoraxy/nginx/Caddy/Traefik configs.\n'
+    printf 'Once the proxy is up, check that uploads get through it with:\n'
+    printf '  sentinel-ops domain status\n\n'
     return 0
 }
 
