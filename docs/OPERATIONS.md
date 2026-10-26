@@ -149,6 +149,46 @@ See [BACKUPS.md](BACKUPS.md) for the full backup layout, retention, restore
 flags, and setting up a real 3-2-1 setup (a second local/attached copy plus an
 offsite one, both replicated by [restic](https://restic.net) on a schedule).
 
+## Disk space and old images
+
+Every update leaves images behind: each application build is tagged
+`sentinel-ops:<commit>`, and each Supabase update pulls new versions of a dozen
+service images. With auto-update on, that adds up quickly, so both updates
+clean up after themselves once they have succeeded:
+
+| After | Removed | Kept |
+|---|---|---|
+| `update app` | every other `sentinel-ops:*` tag; untagged leftovers of this installer's own builds; build cache unused for `IMAGE_BUILD_CACHE_MAX_AGE` (default `168h`) | the deployed image, the image `rollback` returns to, `:latest` |
+| `update supabase` | older tags of each image repository the Supabase compose files use | the versions the compose files name now |
+
+Anything a container still uses - running or stopped - is never removed, and
+removal is never forced. Images from other repositories (your reverse proxy,
+other workloads) are never touched. A failed update removes nothing, and a
+cleanup problem is only a warning: it never fails the update.
+
+To see what would go, or to clean up an installation that built up images
+before this existed:
+
+```bash
+sudo sentinel-ops cleanup --dry-run
+sudo sentinel-ops cleanup
+```
+
+`sentinel-ops status` shows free space where Docker keeps its data (and warns
+below 10%) along with how much of the image store is reclaimable.
+
+Two things to know on a shared host:
+
+- **Build cache** cannot be told apart by project, so the age-based prune
+  applies to every build on the host. It is only cache: nothing breaks, an
+  unrelated build that has not run for a week just starts cold.
+- **Other Supabase stacks** use the same image repositories (`supabase/gotrue`,
+  `supabase/storage-api`, ...). Their older versions are removed after
+  `update supabase` unless a container still uses them.
+
+To manage images yourself instead, set `IMAGE_CLEANUP_ENABLED=false` in
+`config/installer.env`; `sentinel-ops cleanup` still works on demand.
+
 ## Rolling back
 
 ```bash
@@ -240,6 +280,7 @@ Edit `/opt/sentinel-ops/config/installer.env`, then apply:
 | `APP_BIND`, `APP_PORT` | `sentinel-ops update app` |
 | `ENABLE_LOGFLARE` | `sentinel-ops install` (re-runs the analytics phase) |
 | `STORAGE_FILE_SIZE_LIMIT` | `sentinel-ops repair apply` (rewrites the storage overlay and recreates `storage`) |
+| `IMAGE_CLEANUP_ENABLED`, `IMAGE_BUILD_CACHE_MAX_AGE` | Nothing - read by the next update or `sentinel-ops cleanup` |
 
 Changing a URL requires a **restart**, not a rebuild: the app reads
 `SUPABASE_URL`/`SUPABASE_PUBLISHABLE_KEY` from `process.env` at runtime via

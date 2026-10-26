@@ -61,6 +61,10 @@ AUTH_RATE_LIMIT_TOKEN=""
 # Supabase Storage's global upload limit in bytes (lib/storage.sh). Upstream
 # ships 50 MiB; the application's installer bucket allows 4 GiB.
 STORAGE_FILE_SIZE_LIMIT="4294967296"
+# Removing superseded Docker images after updates (lib/images.sh). The build
+# cache age is a docker duration such as 168h.
+IMAGE_CLEANUP_ENABLED="true"
+IMAGE_BUILD_CACHE_MAX_AGE="168h"
 # How many local backup cycles to keep (lib/backup.sh:backup_prune_local).
 BACKUP_RETENTION_COUNT="10"
 # Scheduled backups (lib/commands/schedule.sh). Off by default; see
@@ -131,7 +135,8 @@ config_load() {
                AUTH_DISABLE_SIGNUP AUTH_PASSWORD_POLICY AUTH_PASSWORD_MIN_LENGTH \
                AUTH_HIBP_ENABLED AUTH_HIBP_FAIL_CLOSED AUTH_CAPTCHA_ENABLED \
                TURNSTILE_SITE_KEY AUTH_RATE_LIMIT_HEADER AUTH_RATE_LIMIT_TOKEN \
-               STORAGE_FILE_SIZE_LIMIT BACKUP_RETENTION_COUNT \
+               STORAGE_FILE_SIZE_LIMIT IMAGE_CLEANUP_ENABLED IMAGE_BUILD_CACHE_MAX_AGE \
+               BACKUP_RETENTION_COUNT \
                BACKUP_SCHEDULE_ENABLED BACKUP_SCHEDULE_CALENDAR BACKUP_SCHEDULE_CHECK_DAY \
                RESTIC_SECONDARY_ENABLED RESTIC_SECONDARY_REPOSITORY \
                RESTIC_SECONDARY_KEEP_DAILY RESTIC_SECONDARY_KEEP_WEEKLY RESTIC_SECONDARY_KEEP_MONTHLY \
@@ -194,6 +199,9 @@ config_save() {
         printf 'AUTH_RATE_LIMIT_TOKEN=%s\n\n'  "$AUTH_RATE_LIMIT_TOKEN"
         printf '# Storage upload limit in bytes - see docs/REVERSE-PROXY.md\n'
         printf 'STORAGE_FILE_SIZE_LIMIT=%s\n\n' "$STORAGE_FILE_SIZE_LIMIT"
+        printf '# Docker image cleanup after updates - see docs/OPERATIONS.md\n'
+        printf 'IMAGE_CLEANUP_ENABLED=%s\n'     "$IMAGE_CLEANUP_ENABLED"
+        printf 'IMAGE_BUILD_CACHE_MAX_AGE=%s\n\n' "$IMAGE_BUILD_CACHE_MAX_AGE"
         printf '# Backups - see docs/BACKUPS.md\n'
         printf 'BACKUP_RETENTION_COUNT=%s\n' "$BACKUP_RETENTION_COUNT"
         printf 'BACKUP_SCHEDULE_ENABLED=%s\n'  "$BACKUP_SCHEDULE_ENABLED"

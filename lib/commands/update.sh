@@ -132,6 +132,12 @@ cmd_update_app() {
     state_set AUTO_UPDATE_SKIP_REASON ""
     state_touch_updated
 
+    # Only after the new image is live and recorded, so the old one is never
+    # removed from under a deployment that did not finish.
+    phase_begin "Removing superseded images"
+    images_cleanup_after_app_update
+    phase_end
+
     printf '\n'
     log_ok "Sentinel Ops updated"
     status_line "Commit" "" "${before_commit:0:7} -> $(repo_short_commit)"
@@ -219,6 +225,10 @@ cmd_update_supabase() {
     state_set SUPABASE_VERSION "$new_version"
     state_set PREVIOUS_SUPABASE_VERSION "$current"
     state_touch_updated
+
+    phase_begin "Removing superseded images"
+    images_cleanup_after_supabase_update
+    phase_end
 
     printf '\n'
     log_ok "Supabase updated"
